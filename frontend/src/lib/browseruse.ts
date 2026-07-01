@@ -1,6 +1,6 @@
 import type { UIAuditResponse } from "@/types/audit";
 import { getFirestoreClient } from "@/lib/firestore-runs";
-import { taskIdForPage } from "@/lib/task-ids";
+import { taskIdForPage, taskIdForRedoPage, taskIdForCompetitor } from "@/lib/task-ids";
 import { GoogleAuth } from "google-auth-library";
 
 const AUDITS_COLLECTION = "audits";
@@ -42,30 +42,36 @@ function formatBestPractices(bestPractices: string[]): string {
 }
 
 function buildBrowserUseTask(pageUrl: string, bestPractices: string): string {
-  return `**Role:** You are a Senior UX Auditor. Your goal is to identify exactly **7 implementation problems** on a webpage where the user experience is less than "Excellent."
+  return `**Role:** You are a Senior UX Auditor. You produce two things: (1) a complete diagnostic rating of every provided best practice, and (2) a prioritized shortlist of exactly **7 problems** where the user experience is less than "Excellent."
 
-**Objective:** Use the provided best practices as a diagnostic lens to find 7 friction points. 
+**Objective:** Use the provided best practices as a diagnostic lens. First rate *all* of them. Then surface the 7 most important friction points.
 
 **Evaluation Criteria:**
 ${bestPractices}
 
 **Operational Protocol:**
-1.  **Diagnostic Rating:** For each provided best practice, evaluate the implementation as **Poor**, **Good**, or **Excellent**. 
-2.  **Problem Selection:** Any implementation rated **Poor** or **Good** is considered a "Problem." 
-3.  **Quota Fulfillment:** * If the provided best practices yield fewer than 7 problems, perform a general UX heuristic analysis to identify additional issues until exactly **7 problems** are reached.
-    * Prioritize the most critical "Poor" ratings first.
-4.  **Efficiency:** Use a visual-first approach. Batch interactions (scrolls/clicks) only when necessary to confirm a "Poor" or "Good" rating.
+1.  **Full Diagnostic Rating:** Evaluate **every** provided best practice and rate its implementation as **Poor**, **Good**, or **Excellent**. Rate all of them — do not skip any, including those rated Excellent.
+2.  **Problem Pool:** Any best practice rated **Poor** or **Good** is a candidate "Problem."
+3.  **Problem Selection (exactly 7):**
+    * Select the 7 problems primarily from the candidate pool. Prioritize **Poor** ratings over **Good**, and the most critical/high-impact issues first.
+    * If the candidate pool yields **fewer than 7** problems, supplement with general UX heuristic issues **not covered** by the provided best practices until exactly 7 are reached.
+    * If the candidate pool yields **more than 7**, select the 7 highest-impact issues (Poor before Good) and leave the rest in the diagnostic rating only.
+4.  **Efficiency:** Use a visual-first approach. Batch interactions (scrolls/clicks) only when necessary to confirm a rating.
 
 **Output Requirements:**
-Provide a list of exactly **7 problems**. For each, include:
 
+**Section 1 — Best Practice Ratings**
+For each provided best practice, one line: the best practice name — **Rating** (Poor / Good / Excellent) — a brief (one-sentence) observation justifying the rating.
+
+**Section 2 — Top 7 Problems**
+Exactly 7 problems, in priority order. For each:
 1.  **[Problem Name/Headline]**
     * **Rating:** (Poor or Good)
-    * **Reference:** (The specific Best Practice used, or "General Heuristic" if found during the supplemental analysis)
+    * **Reference:** (The specific Best Practice used, or "General Heuristic" if found during supplemental analysis)
     * **Observation:** A concise description of the implementation flaw discovered.
-    * **Recommendation:** A brief actionable fix to elevate the implementation to "Excellent."
+    * **Recommendation:** A brief, actionable fix to elevate the implementation to "Excellent."
 
-**Constraint:** Do not include introductory text, summary tables, or "Part" headers. Provide detailed explanations for observations and recommendations. Output only the 7 problems.`;
+**Constraints:** No introductory text and no summary "Part" headers beyond the two required sections. Section 1 must be a compact one-line-per-item list. Reserve detailed explanations for Section 2.`;
 }
 
 type PageTaskState = {
@@ -134,6 +140,71 @@ async function submitBrowserUseTask(
     const detail = await response.text();
     throw new Error(`BrowserUse API ${response.status}: ${detail}`);
   }
+}
+
+function buildCompetitorTask(
+  competitorName: string,
+  competitorUrl: string,
+  pageType: string,
+): string {
+  return (
+    `Open the website for ${competitorName} using the url ${competitorUrl}. ` +
+    `Navigate to the ${pageType}. ` +
+    `Wait for the page to load, close any popups or messages and take a screenshot.`
+  );
+}
+
+export type CompetitorDispatchResult = {
+  dispatched: string[];
+  skipped: string[];
+  errors: string[];
+};
+
+export async function dispatchCompetitorTasks(
+  audit: UIAuditResponse,
+  runId: string,
+  signal: AbortSignal,
+): Promise<CompetitorDispatchResult> {
+  const baseUrl = browserUseBaseUrl();
+  const dispatched: string[] = [];
+  const skipped: string[] = [];
+  const errors: string[] = [];
+
+  await Promise.allSettled(
+    audit.pages.flatMap((page, pageIndex) =>
+      (audit.competitors ?? []).map(async (competitor, competitorIndex) => {
+        const competitorUrl = competitor.competitor_url?.trim();
+        if (!competitorUrl) {
+          skipped.push(`page ${pageIndex} / competitor ${competitorIndex}: no URL`);
+          return;
+        }
+        const task = buildCompetitorTask(competitor.competitor_name, competitorUrl, page.page_type);
+        const taskId = taskIdForCompetitor(runId, pageIndex, competitorIndex);
+        try {
+          await submitBrowserUseTask(baseUrl, competitorUrl, task, taskId, signal);
+          dispatched.push(taskId);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push(`${taskId}: ${msg}`);
+          console.error("Competitor task submission failed", { taskId, error: msg });
+        }
+      }),
+    ),
+  );
+
+  return { dispatched, skipped, errors };
+}
+
+export async function dispatchRedoScreenshotTask(
+  pageUrl: string,
+  runId: string,
+  pageIndex: number,
+  signal: AbortSignal,
+): Promise<void> {
+  const baseUrl = browserUseBaseUrl();
+  const task = `open the url ${pageUrl} and wait for the page to load, close any popups or messages and take a screenshot.`;
+  const taskId = taskIdForRedoPage(runId, pageIndex);
+  await submitBrowserUseTask(baseUrl, pageUrl, task, taskId, signal);
 }
 
 export async function dispatchBrowserUseTasks(

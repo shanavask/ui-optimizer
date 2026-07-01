@@ -3,14 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AuditResultEditor } from "@/app/components/AuditResultEditor";
+import { AuditTabs } from "@/app/components/AuditTabs";
 import { taskIdForPage } from "@/lib/task-ids";
-import type { UIAuditResponse } from "@/types/audit";
+import type { CompetitorArtifact, SlideReport, UIAuditResponse } from "@/types/audit";
 
 type AnalyzeResponse = { audit: UIAuditResponse; runId?: string };
 type ErrorBody = { error: string; rejectedUrls?: string[] };
 type SaveRunResponse = { runId: string; audit: UIAuditResponse };
 type CreateSlidesResponse = { slidesUrl: string };
+type SlidesUrlResponse = { slidesUrl: string | null };
+type SlideReportsResponse = { reports: (SlideReport | null)[] };
 type EyeQuantResponse = { status: string };
+type RunCompetitorsResponse = { dispatched: string[]; skipped: string[]; errors: string[] };
 type RoiResponse = { exists: boolean; content: string | null };
 type GuestimateRoiResponse = { content: string };
 type OkResponse = { ok: boolean };
@@ -97,12 +101,12 @@ async function postCreateSlides(
   return data as CreateSlidesResponse;
 }
 
-async function postEyeQuant(runId: string): Promise<EyeQuantResponse> {
-  console.info("[ui] posting EyeQuant request", { runId });
+async function postEyeQuant(runId: string, pageIndex?: number): Promise<EyeQuantResponse> {
+  console.info("[ui] posting EyeQuant request", { runId, pageIndex });
   const response = await fetch("/api/slides/eyequant", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ runId }),
+    body: JSON.stringify(pageIndex !== undefined ? { runId, pageIndex } : { runId }),
   });
   const data: unknown = await response.json();
   console.info("[ui] EyeQuant response received", {
@@ -162,6 +166,34 @@ async function postGuestimateRoi(
   return data as GuestimateRoiResponse;
 }
 
+async function getSlidesUrl(runId: string): Promise<string | null> {
+  const response = await fetch(`/api/slides/create?runId=${encodeURIComponent(runId)}`);
+  const data: unknown = await response.json();
+  if (!response.ok) {
+    return null;
+  }
+  const ok = data as SlidesUrlResponse;
+  return ok.slidesUrl ?? null;
+}
+
+async function getSlideReports(runId: string): Promise<(SlideReport | null)[]> {
+  const response = await fetch(`/api/slides/reports?runId=${encodeURIComponent(runId)}`);
+  const data: unknown = await response.json();
+  if (!response.ok) {
+    return [];
+  }
+  const ok = data as SlideReportsResponse;
+  return Array.isArray(ok.reports) ? ok.reports : [];
+}
+
+async function getCompetitorArtifacts(runId: string): Promise<CompetitorArtifact[][]> {
+  const response = await fetch(`/api/competitors/artifacts?runId=${encodeURIComponent(runId)}`);
+  const data: unknown = await response.json();
+  if (!response.ok) return [];
+  const ok = data as { artifacts?: CompetitorArtifact[][] };
+  return Array.isArray(ok.artifacts) ? ok.artifacts : [];
+}
+
 async function deleteRun(runId: string): Promise<void> {
   const response = await fetch(`/api/runs/${encodeURIComponent(runId)}`, {
     method: "DELETE",
@@ -200,12 +232,15 @@ export default function HomePage(): React.JSX.Element {
   const [runsError, setRunsError] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
-  const [showSelectedRunAuditData, setShowSelectedRunAuditData] = useState(false);
   const [runDetailLoadingId, setRunDetailLoadingId] = useState<string | null>(null);
   const [creatingSlides, setCreatingSlides] = useState(false);
   const [runningEyeQuant, setRunningEyeQuant] = useState(false);
+  const [redoingEyeQuantPage, setRedoingEyeQuantPage] = useState<number | null>(null);
+  const [runningCompetitors, setRunningCompetitors] = useState(false);
   const [guestimatingRoi, setGuestimatingRoi] = useState(false);
   const [slidesUrl, setSlidesUrl] = useState<string | null>(null);
+  const [slideReports, setSlideReports] = useState<(SlideReport | null)[]>([]);
+  const [competitorArtifacts, setCompetitorArtifacts] = useState<CompetitorArtifact[][]>([]);
   const [guestimateContent, setGuestimateContent] = useState<string>("");
   const [hasRoiDocument, setHasRoiDocument] = useState<boolean>(false);
 
@@ -276,11 +311,9 @@ export default function HomePage(): React.JSX.Element {
         setSlidesUrl(null);
         if (saveRun && result.runId) {
           setSelectedRunId(result.runId);
-          setShowSelectedRunAuditData(false);
         }
         if (!saveRun) {
           setSelectedRunId(null);
-          setShowSelectedRunAuditData(true);
         }
       } catch (err) {
         if (clearAuditOnError) {
@@ -312,7 +345,6 @@ export default function HomePage(): React.JSX.Element {
       const result = await postSaveRun(audit, selectedRunId ?? undefined);
       setAudit(result.audit);
       setSelectedRunId(result.runId);
-      setShowSelectedRunAuditData(false);
       setSlidesUrl(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
@@ -325,11 +357,17 @@ export default function HomePage(): React.JSX.Element {
     setError(null);
     setRunDetailLoadingId(runId);
     try {
-      const nextAudit = await getRunAudit(runId);
+      const [nextAudit, existingSlidesUrl, reports, compArtifacts] = await Promise.all([
+        getRunAudit(runId),
+        getSlidesUrl(runId),
+        getSlideReports(runId),
+        getCompetitorArtifacts(runId),
+      ]);
       setAudit(nextAudit);
       setSelectedRunId(runId);
-      setShowSelectedRunAuditData(true);
-      setSlidesUrl(null);
+      setSlidesUrl(existingSlidesUrl);
+      setSlideReports(reports);
+      setCompetitorArtifacts(compArtifacts);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load run");
     } finally {
@@ -348,8 +386,9 @@ export default function HomePage(): React.JSX.Element {
         if (selectedRunId === runId) {
           setSelectedRunId(null);
           setAudit(null);
-          setShowSelectedRunAuditData(false);
           setSlidesUrl(null);
+          setSlideReports([]);
+          setCompetitorArtifacts([]);
           setGuestimateContent("");
           setHasRoiDocument(false);
         }
@@ -375,6 +414,8 @@ export default function HomePage(): React.JSX.Element {
       );
       const result = await postCreateSlides(taskIds, selectedRunId);
       setSlidesUrl(result.slidesUrl);
+      const reports = await getSlideReports(selectedRunId);
+      setSlideReports(reports);
     } catch (err) {
       setSlidesUrl(null);
       setError(err instanceof Error ? err.message : "Failed to create slides");
@@ -434,6 +475,55 @@ export default function HomePage(): React.JSX.Element {
     }
   }, [audit, selectedRunId]);
 
+  const onRedoEyeQuantPage = useCallback(async (pageIndex: number) => {
+    if (!audit || !selectedRunId) return;
+    setError(null);
+    setRedoingEyeQuantPage(pageIndex);
+    try {
+      const response = await fetch("/api/redo-screenshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: selectedRunId, pageIndex }),
+      });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(typeof data.error === "string" ? data.error : `HTTP ${response.status}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to redo screenshot");
+    } finally {
+      setRedoingEyeQuantPage(null);
+    }
+  }, [audit, selectedRunId]);
+
+  const onRunCompetitors = useCallback(async () => {
+    if (!selectedRunId) return;
+    setError(null);
+    setRunningCompetitors(true);
+    try {
+      const response = await fetch("/api/competitors/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: selectedRunId }),
+      });
+      const data: unknown = await response.json();
+      if (!response.ok) {
+        const err = data as { error?: string };
+        throw new Error(typeof err.error === "string" ? err.error : `HTTP ${response.status}`);
+      }
+      const result = data as RunCompetitorsResponse;
+      if (result.errors.length > 0) {
+        setError(`Some tasks failed: ${result.errors.join(", ")}`);
+      }
+      const refreshed = await getCompetitorArtifacts(selectedRunId);
+      setCompetitorArtifacts(refreshed);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to run competitors");
+    } finally {
+      setRunningCompetitors(false);
+    }
+  }, [selectedRunId]);
+
   const onGuestimateRoi = useCallback(async () => {
     if (!audit || !selectedRunId) {
       return;
@@ -457,24 +547,24 @@ export default function HomePage(): React.JSX.Element {
     }
   }, [audit, guestimateContent, selectedRunId]);
 
-  const canCreateSlides =
-    !!selectedRunId &&
-    !!audit &&
-    audit.pages.length > 0 &&
-    audit.pages.every((page) => page.audit_status === "completed");
-  const missingEyeshot =
-    !!audit &&
-    audit.pages.some((page) => !page.eyeshot || !page.eyeshot.trim());
-  const showAuditResults = selectedRunId !== null && !showSelectedRunAuditData;
-  const showEyeQuant = showAuditResults && hasRoiDocument && canCreateSlides && missingEyeshot;
-  const showCreateSlides =
-    showAuditResults && hasRoiDocument && canCreateSlides && !missingEyeshot;
-  const showGuestimateRoi = showAuditResults && !hasRoiDocument;
+  const onSaveGuestimate = useCallback(async (content: string) => {
+    if (!selectedRunId) return;
+    const response = await fetch(`/api/roi/${encodeURIComponent(selectedRunId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    if (!response.ok) {
+      throw new Error("Failed to save ROI document");
+    }
+    setGuestimateContent(content);
+    setHasRoiDocument(true);
+  }, [selectedRunId]);
 
   useEffect(() => {
     let isMounted = true;
     const loadGuestimate = async () => {
-      if (!audit || !selectedRunId || !showAuditResults) {
+      if (!audit || !selectedRunId) {
         setGuestimateContent("");
         setHasRoiDocument(false);
         return;
@@ -501,7 +591,7 @@ export default function HomePage(): React.JSX.Element {
     return () => {
       isMounted = false;
     };
-  }, [audit, selectedRunId, showAuditResults]);
+  }, [audit, selectedRunId]);
 
   return (
     <main className="page">
@@ -599,25 +689,38 @@ export default function HomePage(): React.JSX.Element {
               </button>
             </form>
           </>
+        ) : selectedRunId ? (
+          <AuditTabs
+            audit={audit}
+            onChange={setAudit}
+            agentUsername={UI_AGENT_USERNAME}
+            loading={loading}
+            onRunAudit={onRunAuditFromData}
+            guestimateContent={guestimateContent}
+            hasRoiDocument={hasRoiDocument}
+            onGuestimateRoi={onGuestimateRoi}
+            guestimatingRoi={guestimatingRoi}
+            onSaveGuestimate={onSaveGuestimate}
+            onRunEyeQuant={onRunEyeQuant}
+            runningEyeQuant={runningEyeQuant}
+            onRedoEyeQuantPage={onRedoEyeQuantPage}
+            redoingEyeQuantPage={redoingEyeQuantPage}
+            slidesUrl={slidesUrl}
+            onCreateSlides={onCreateSlides}
+            creatingSlides={creatingSlides}
+            slideReports={slideReports}
+            onRunCompetitors={onRunCompetitors}
+            runningCompetitors={runningCompetitors}
+            competitorArtifacts={competitorArtifacts}
+          />
         ) : (
           <AuditResultEditor
             value={audit}
             onChange={setAudit}
             agentUsername={UI_AGENT_USERNAME}
-            hideAuditData={showAuditResults}
+            hideAuditData={false}
             loading={loading}
             onRunAudit={onRunAuditFromData}
-            onCreateSlides={
-              showEyeQuant ? onRunEyeQuant : showCreateSlides ? onCreateSlides : undefined
-            }
-            createSlidesLabel={showEyeQuant ? "EyeQuant" : "Create Slides"}
-            createSlidesBusyLabel={showEyeQuant ? "Running EyeQuant..." : "Creating slides..."}
-            onGuestimateRoi={showGuestimateRoi ? onGuestimateRoi : undefined}
-            creatingSlides={showEyeQuant ? runningEyeQuant : creatingSlides}
-            guestimatingRoi={guestimatingRoi}
-            createSlidesDisabled={!showCreateSlides && !showEyeQuant}
-            slidesUrl={slidesUrl}
-            guestimateContent={guestimateContent}
           />
         )}
         {error ? (

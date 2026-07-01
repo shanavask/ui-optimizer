@@ -129,17 +129,32 @@ api_key = load_api_key()
 from google.cloud import firestore
 
 client = firestore.Client(project=project_id, database=database_id)
-run_id = 'CAOrJtbcq9gewMC80SoX'
+run_id = 'KxlI70UIVIwnfjzJr8Su'
+# %%
+page_id=0
+run_doc = client.collection("runs").document(run_id).get().to_dict()
+num_pages = len(run_doc['audit']['pages'])
+page_ids = [page_id] if page_id is not None else range(num_pages)
+page_ids
+# %%
+pid=page_ids[0]
+task_id = f"{run_id}_page_{pid}"
+audit_doc = client.collection("audits").document(f"{task_id}").get()
+# %%
+audit_dict = audit_doc.to_dict()
+image_b64 = audit_dict['screenshot']
+
 # %%
 run_dict = client.collection('runs').document(run_id).get().to_dict()
 num_pages = len(run_dict['audit']['pages'])
 # %%
-task_id = f"{run_id}_page_0"
-
-# %%
+task_id = f"{run_id}_page_1"
 audit_doc = client.collection("audits").document(task_id).get()
 audit_dict = audit_doc.to_dict()
-audit_dict['screenshot']
+img_bytes = base64.b64decode(audit_dict['screenshot'])
+img = Image.open(BytesIO(img_bytes))
+# %%
+img.save("output_image.png")
 # %%
 image_b64 = audit_dict['screenshot']
 analysis_id = create_image_analysis(api_key, image_b64, 'vetoquinol digital')

@@ -3,20 +3,22 @@ include .env
 
 .PHONY: dev computer criteria-agent frontend
 
-# $(MAKE) computer-api & \
+# 	$(MAKE) criteria-agent & \
+
 # $(MAKE) guestimate-agent & \
 # 	$(MAKE) slides-api & \
-
+# SLIDES_API=http://localhost:5402 CRITERIA_AGENT=http://localhost:8001
 dev:
 	@trap 'trap - INT TERM; kill 0; exit 130' INT TERM; \
 	ID_TOKEN="$$(gcloud auth print-identity-token)"; \
 	export ID_TOKEN; \
-	$(MAKE) slides-api & \
-	$(MAKE) frontend SLIDES_API=http://localhost:5402 & \
+	$(MAKE) computer-api & \
+ 	$(MAKE) slides-api & \
+	$(MAKE) COMPUTER_API=http://localhost:5401 SLIDES_API=http://localhost:5402 frontend  & \
 	wait
 
 computer-api:
-	uv run apis/computer-use/main.py --mode server --port 5401
+	USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI) VERTEXAI_PROJECT=$(GOOGLE_CLOUD_PROJECT) VERTEXAI_LOCATION=global uv run apis/computer-use/run.py --mode server --port 5401
 
 slides-api:
 	uv run apis/slidesapi/main.py --mode server --port 5402
@@ -28,6 +30,8 @@ guestimate-agent:
 	uv run adk api_server agents/ui-audit-guestimate --host 0.0.0.0 --port 8002 --reload
 
 frontend:
+	ID_TOKEN="$$(gcloud auth print-identity-token)"; \
+	export ID_TOKEN; \
 	npm run dev --prefix frontend
 
 deploy-criteria:
@@ -59,7 +63,7 @@ deploy-computer:
 		--no-cpu-throttling \
 		--no-allow-unauthenticated \
 		--set-build-env-vars "GOOGLE_PYTHON_VERSION=3.13.11" \
-		--set-env-vars "FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),BROWSERBASE_API_KEY=$(BROWSERBASE_API_KEY),BROWSERBASE_PROJECT_ID=$(BROWSERBASE_PROJECT_ID)"
+		--set-env-vars "FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),VERTEXAI_PROJECT=$(GOOGLE_CLOUD_PROJECT),VERTEXAI_LOCATION=global,STORAGE_BUCKET=$(STORAGE_BUCKET),BROWSERBASE_API_KEY=$(BROWSERBASE_API_KEY),BROWSERBASE_PROJECT_ID=$(BROWSERBASE_PROJECT_ID)"
 
 deploy-slidesapi:
 	gcloud beta run deploy ui-audit-slides \
@@ -68,7 +72,7 @@ deploy-slidesapi:
 		--region $(GOOGLE_CLOUD_LOCATION) \
 		--no-allow-unauthenticated \
 		--set-build-env-vars "GOOGLE_PYTHON_VERSION=3.13.11" \
-		--set-env-vars "GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),LLM_MODEL=$(LLM_MODEL),SERVICE_SECRET=$(SERVICE_SECRET),TARGET_FOLDER_KEY=$(TARGET_FOLDER_KEY),TEMPLATE_FILE_KEY=$(TEMPLATE_FILE_KEY),EYEQUANT_API_KEY=$(EYEQUANT_API_KEY)"
+		--set-env-vars "GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),STORAGE_BUCKET=$(STORAGE_BUCKET),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),LLM_MODEL=$(LLM_MODEL),SERVICE_SECRET=$(SERVICE_SECRET),TARGET_FOLDER_KEY=$(TARGET_FOLDER_KEY),TEMPLATE_FILE_KEY=$(TEMPLATE_FILE_KEY),EYEQUANT_API_KEY=$(EYEQUANT_API_KEY)"
 
 deploy-frontend:
 	gcloud beta run deploy ui-audit --source ./frontend \
@@ -76,4 +80,4 @@ deploy-frontend:
 			--platform managed --no-allow-unauthenticated \
 			--timeout 3600 \
 			--set-env-vars \
-			"GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),CRITERIA_AGENT=$(CRITERIA_AGENT),GUESSTIMATE_AGENT=$(GUESSTIMATE_AGENT),COMPUTER_API=$(COMPUTER_API),SLIDES_API=$(SLIDES_API)" \
+			"GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),STORAGE_BUCKET=$(STORAGE_BUCKET),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),CRITERIA_AGENT=$(CRITERIA_AGENT),GUESSTIMATE_AGENT=$(GUESSTIMATE_AGENT),COMPUTER_API=$(COMPUTER_API),SLIDES_API=$(SLIDES_API)" \

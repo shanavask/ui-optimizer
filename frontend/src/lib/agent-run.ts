@@ -4,7 +4,7 @@ import {
   parseUrlsFromMultiline,
 } from "@/lib/url-input";
 import { GoogleAuth } from "google-auth-library";
-import type { UIAuditResponse } from "@/types/audit";
+import type { Competitor, UIAuditResponse } from "@/types/audit";
 
 const APP_NAME = "app";
 
@@ -154,9 +154,19 @@ function parseAuditFromPayload(payload: unknown): UIAuditResponse | null {
     }
   }
   if (isObject(payload) && Array.isArray(payload.pages) && payload.pages.every(isPageAudit)) {
+    const competitors = Array.isArray(payload.competitors)
+      ? (payload.competitors as unknown[])
+          .map((c): Competitor | null => {
+            if (!isObject(c)) return null;
+            if (typeof c.competitor_name !== "string" || typeof c.competitor_url !== "string") return null;
+            return { competitor_name: c.competitor_name, competitor_url: c.competitor_url };
+          })
+          .filter((c): c is Competitor => c !== null)
+      : undefined;
     return {
       company_name: typeof payload.company_name === "string" ? payload.company_name : "",
       vertical: typeof payload.vertical === "string" ? payload.vertical : "",
+      ...(competitors && competitors.length > 0 ? { competitors } : {}),
       pages: payload.pages,
       message: typeof payload.message === "string" ? payload.message : "",
     };

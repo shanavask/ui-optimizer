@@ -1,4 +1,4 @@
-import type { PageAudit, UIAuditResponse } from "@/types/audit";
+import type { Competitor, PageAudit, UIAuditResponse } from "@/types/audit";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -24,9 +24,19 @@ function normalizeAuditResponse(value: unknown): UIAuditResponse | null {
   if (!Array.isArray(value.pages) || !value.pages.every(isPageAudit)) {
     return null;
   }
+  const competitors = Array.isArray(value.competitors)
+    ? (value.competitors as unknown[])
+        .map((c): Competitor | null => {
+          if (!isRecord(c)) return null;
+          if (typeof c.competitor_name !== "string" || typeof c.competitor_url !== "string") return null;
+          return { competitor_name: c.competitor_name, competitor_url: c.competitor_url };
+        })
+        .filter((c): c is Competitor => c !== null)
+    : undefined;
   return {
     company_name: typeof value.company_name === "string" ? value.company_name : "",
     vertical: value.vertical,
+    ...(competitors && competitors.length > 0 ? { competitors } : {}),
     pages: value.pages,
     message: typeof value.message === "string" ? value.message : "",
   };

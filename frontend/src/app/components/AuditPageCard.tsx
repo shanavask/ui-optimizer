@@ -36,6 +36,7 @@ export function AuditPageCard({
   onRememberPageBestPractices,
 }: AuditPageCardProps): React.JSX.Element {
   const bpText = bestPracticesToText(page.best_practices);
+  const [bpExpanded, setBpExpanded] = useState(false);
   const [rememberingPage, setRememberingPage] = useState(false);
   const [rememberStatus, setRememberStatus] = useState<string | null>(null);
   const [rememberError, setRememberError] = useState<string | null>(null);
@@ -69,14 +70,18 @@ export function AuditPageCard({
   );
 
   const screenshotSrc = page.screenshot?.trim()
-    ? page.screenshot.startsWith("data:")
-      ? page.screenshot
-      : `data:image/png;base64,${page.screenshot}`
+    ? page.screenshot.startsWith("gs://")
+      ? `/api/storage/image?path=${encodeURIComponent(page.screenshot)}`
+      : page.screenshot.startsWith("data:")
+        ? page.screenshot
+        : `data:image/png;base64,${page.screenshot}`
     : null;
   const eyeshotSrc = page.eyeshot?.trim()
-    ? page.eyeshot.startsWith("data:")
-      ? page.eyeshot
-      : `data:image/png;base64,${page.eyeshot}`
+    ? page.eyeshot.startsWith("gs://")
+      ? `/api/storage/image?path=${encodeURIComponent(page.eyeshot)}`
+      : page.eyeshot.startsWith("data:")
+        ? page.eyeshot
+        : `data:image/png;base64,${page.eyeshot}`
     : null;
 
   return (
@@ -84,38 +89,56 @@ export function AuditPageCard({
       <h3 className="audit-page-heading">Page {pageIndex + 1}</h3>
       {!hideAuditData ? (
         <>
-          <label className="audit-field">
-            <span>URL</span>
-            <input
-              type="url"
-              value={page.url}
-              onChange={(e) => onUrlChange(pageIndex, e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <label className="audit-field">
-            <span>Page type</span>
-            <input
-              type="text"
-              value={page.page_type}
-              onChange={(e) => onPageTypeChange(pageIndex, e.target.value)}
-              autoComplete="off"
-            />
-          </label>
+          <div className="audit-meta-row">
+            <label className="audit-field">
+              <span>URL</span>
+              <input
+                type="url"
+                value={page.url}
+                onChange={(e) => onUrlChange(pageIndex, e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <label className="audit-field">
+              <span>Page type</span>
+              <input
+                type="text"
+                value={page.page_type}
+                onChange={(e) => onPageTypeChange(pageIndex, e.target.value)}
+                autoComplete="off"
+              />
+            </label>
+          </div>
           <div className="audit-practices">
-            <span
-              className="audit-practices-label-wrap"
-              id={`bp-label-${pageIndex}`}
-            >
-              Best practices
-            </span>
-            <BestPracticesNumberedField
-              id={`bp-${pageIndex}`}
-              labelId={`bp-label-${pageIndex}`}
-              value={bpText}
-              rows={8}
-              onChange={(t) => onBestPracticesTextChange(pageIndex, t)}
-            />
+            <div className="audit-practices-label-row">
+              <span
+                className="audit-practices-label-wrap"
+                id={`bp-label-${pageIndex}`}
+              >
+                Best practices
+                {!bpExpanded && allBestPractices.length > 0 && (
+                  <span className="audit-bp-count"> ({allBestPractices.length})</span>
+                )}
+              </span>
+              <button
+                type="button"
+                className="audit-bp-toggle"
+                onClick={() => setBpExpanded((v) => !v)}
+                aria-expanded={bpExpanded}
+                aria-controls={`bp-${pageIndex}`}
+              >
+                {bpExpanded ? "Collapse" : "Expand"}
+              </button>
+            </div>
+            <div className={bpExpanded ? undefined : "audit-bp-collapsed"}>
+              <BestPracticesNumberedField
+                id={`bp-${pageIndex}`}
+                labelId={`bp-label-${pageIndex}`}
+                value={bpText}
+                rows={8}
+                onChange={(t) => onBestPracticesTextChange(pageIndex, t)}
+              />
+            </div>
           </div>
         </>
       ) : null}

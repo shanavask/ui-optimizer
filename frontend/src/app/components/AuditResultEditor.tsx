@@ -192,6 +192,26 @@ export function AuditResultEditor({
               autoComplete="off"
             />
           </label>
+          {value.competitors && value.competitors.length > 0 ? (
+            <div className="audit-field">
+              <span>Competitors</span>
+              <ul className="audit-competitors-list">
+                {value.competitors.map((c) => (
+                  <li key={c.competitor_url} className="audit-competitor-item">
+                    <span className="audit-competitor-name">{c.competitor_name}</span>
+                    <a
+                      href={c.competitor_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="audit-competitor-url"
+                    >
+                      {c.competitor_url}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </>
       ) : null}
       {hideAuditData ? (

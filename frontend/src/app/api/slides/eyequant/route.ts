@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 
 const DEFAULT_SLIDES_API = "http://127.0.0.1:5402";
 
-type EyeQuantBody = { runId?: unknown };
+type EyeQuantBody = { runId?: unknown; pageIndex?: unknown };
 
 function readEnvValue(key: string, paths: readonly string[]): string | null {
   for (const candidate of paths) {
@@ -90,6 +90,7 @@ export async function POST(request: Request): Promise<Response> {
       return NextResponse.json({ error: "runId is required." }, { status: 400 });
     }
     const runId = body.runId.trim();
+    const pageIndex = typeof body.pageIndex === "number" ? body.pageIndex : null;
     const baseUrl = slidesApiBaseUrl();
     console.info("[slides/eyequant] preparing upstream request", {
       requestId,
@@ -102,8 +103,11 @@ export async function POST(request: Request): Promise<Response> {
       requestId,
       hasAuthorization: typeof authHeaders.Authorization === "string",
     });
+    const eyequantUrl = pageIndex !== null
+      ? `${baseUrl}/eyequant?run_id=${encodeURIComponent(runId)}&page_id=${pageIndex}`
+      : `${baseUrl}/eyequant?run_id=${encodeURIComponent(runId)}`;
     const response = await fetch(
-      `${baseUrl}/eyequant?run_id=${encodeURIComponent(runId)}`,
+      eyequantUrl,
       {
         method: "GET",
         headers: { ...authHeaders },

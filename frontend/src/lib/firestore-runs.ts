@@ -3,12 +3,14 @@ import path from "node:path";
 
 import { Firestore, Timestamp } from "@google-cloud/firestore";
 
-import type { UIAuditResponse } from "@/types/audit";
+import type { Competitor, CompetitorArtifact, SlideMediaMetrics, SlideReport, SlideFinding, SlideRecommendation, UIAuditResponse } from "@/types/audit";
+import { taskIdForCompetitor } from "@/lib/task-ids";
 
 const RUNS_COLLECTION = "runs";
 const ROI_COLLECTION = "roi";
 const AUDITS_COLLECTION = "audits";
 const EYEQUANT_COLLECTION = "eyequant";
+const REPORTS_COLLECTION = "reports";
 const DEFAULT_RUNS_LIMIT = 50;
 
 let firestoreClient: Firestore | null = null;
@@ -32,6 +34,7 @@ export function parseUIAuditResponse(value: unknown): UIAuditResponse | null {
   const candidate = value as {
     company_name?: unknown;
     vertical?: unknown;
+    competitors?: unknown;
     pages?: unknown;
     message?: unknown;
     guestimate?: unknown;
@@ -43,6 +46,16 @@ export function parseUIAuditResponse(value: unknown): UIAuditResponse | null {
   ) {
     return null;
   }
+  const competitors = Array.isArray(candidate.competitors)
+    ? (candidate.competitors as unknown[])
+        .map((c): Competitor | null => {
+          if (!c || typeof c !== "object") return null;
+          const ci = c as { competitor_name?: unknown; competitor_url?: unknown };
+          if (typeof ci.competitor_name !== "string" || typeof ci.competitor_url !== "string") return null;
+          return { competitor_name: ci.competitor_name, competitor_url: ci.competitor_url };
+        })
+        .filter((c): c is Competitor => c !== null)
+    : undefined;
   const pages = candidate.pages
     .map((page): UIAuditResponse["pages"][number] | null => {
       if (!page || typeof page !== "object") {
@@ -56,6 +69,7 @@ export function parseUIAuditResponse(value: unknown): UIAuditResponse | null {
         audit_result?: unknown;
         screenshot?: unknown;
         eyeshot?: unknown;
+        clarity?: unknown;
       };
       const auditStatus =
         item.audit_status === "completed" || item.audit_status === "in_progress"
@@ -78,6 +92,7 @@ export function parseUIAuditResponse(value: unknown): UIAuditResponse | null {
           : {}),
         ...(typeof item.screenshot === "string" ? { screenshot: item.screenshot } : {}),
         ...(typeof item.eyeshot === "string" ? { eyeshot: item.eyeshot } : {}),
+        ...(typeof item.clarity === "string" ? { clarity: item.clarity } : {}),
       };
     })
     .filter((page): page is UIAuditResponse["pages"][number] => page !== null);
@@ -85,6 +100,7 @@ export function parseUIAuditResponse(value: unknown): UIAuditResponse | null {
   return {
     company_name: candidate.company_name,
     vertical: candidate.vertical,
+    ...(competitors && competitors.length > 0 ? { competitors } : {}),
     pages,
     message: typeof candidate.message === "string" ? candidate.message : "",
     ...(typeof candidate.guestimate === "string" ? { guestimate: candidate.guestimate } : {}),
@@ -93,12 +109,15 @@ export function parseUIAuditResponse(value: unknown): UIAuditResponse | null {
 
 function sanitizeAuditForRunStorage(audit: UIAuditResponse): UIAuditResponse {
   return {
-    ...audit,
+    company_name: audit.company_name,
+    vertical: audit.vertical,
+    ...(audit.competitors && audit.competitors.length > 0 ? { competitors: audit.competitors } : {}),
     pages: audit.pages.map((page) => ({
       url: page.url,
       page_type: page.page_type,
       best_practices: page.best_practices,
     })),
+    message: audit.message,
   };
 }
 
@@ -106,7 +125,9 @@ type PageTaskArtifact = {
   audit_status?: "completed" | "in_progress";
   audit_result?: string;
   screenshot?: string;
+  redo_screenshot?: string;
   eyeshot?: string;
+  clarity?: string;
 };
 
 function parseTaskArtifact(value: unknown): PageTaskArtifact {
@@ -136,8 +157,11 @@ function parseEyequantArtifact(value: unknown): PageTaskArtifact {
   if (!value || typeof value !== "object") {
     return {};
   }
-  const candidate = value as { eyeshot?: unknown };
-  return typeof candidate.eyeshot === "string" ? { eyeshot: candidate.eyeshot } : {};
+  const candidate = value as { eyeshot?: unknown; clarity?: unknown };
+  return {
+    ...(typeof candidate.eyeshot === "string" ? { eyeshot: candidate.eyeshot } : {}),
+    ...(typeof candidate.clarity === "string" ? { clarity: candidate.clarity } : {}),
+  };
 }
 
 async function getPageTaskArtifacts(
@@ -148,11 +172,11 @@ async function getPageTaskArtifacts(
     return new Map<number, PageTaskArtifact>();
   }
   const collection = getFirestoreClient().collection(AUDITS_COLLECTION);
-  const snapshots = await Promise.all(
-    Array.from({ length: pageCount }, (_, pageIndex) =>
-      collection.doc(`${runId}_page_${pageIndex}`).get(),
-    ),
-  );
+  const indices = Array.from({ length: pageCount }, (_, i) => i);
+  const [snapshots, redoSnapshots] = await Promise.all([
+    Promise.all(indices.map((pageIndex) => collection.doc(`${runId}_page_${pageIndex}`).get())),
+    Promise.all(indices.map((pageIndex) => collection.doc(`${runId}_page_${pageIndex}_redo`).get())),
+  ]);
   const artifacts = new Map<number, PageTaskArtifact>();
   snapshots.forEach((snapshot, pageIndex) => {
     if (!snapshot.exists) {
@@ -161,6 +185,19 @@ async function getPageTaskArtifacts(
     const artifact = parseTaskArtifact(snapshot.data());
     if (Object.keys(artifact).length > 0) {
       artifacts.set(pageIndex, artifact);
+    }
+  });
+  redoSnapshots.forEach((snapshot, pageIndex) => {
+    if (!snapshot.exists) {
+      return;
+    }
+    const data = snapshot.data() as { screenshot?: unknown } | undefined;
+    const redoScreenshot = typeof data?.screenshot === "string" && data.screenshot.trim()
+      ? data.screenshot
+      : undefined;
+    if (redoScreenshot) {
+      const existing = artifacts.get(pageIndex) ?? {};
+      artifacts.set(pageIndex, { ...existing, redo_screenshot: redoScreenshot });
     }
   });
   return artifacts;
@@ -192,6 +229,32 @@ async function getPageEyequantArtifacts(
   return artifacts;
 }
 
+export async function getCompetitorArtifacts(
+  runId: string,
+  pageCount: number,
+  competitorCount: number,
+): Promise<CompetitorArtifact[][]> {
+  if (!runId.trim() || pageCount <= 0 || competitorCount <= 0) {
+    return [];
+  }
+  const collection = getFirestoreClient().collection(AUDITS_COLLECTION);
+  const ids = Array.from({ length: pageCount }, (_, pi) =>
+    Array.from({ length: competitorCount }, (__, ci) => taskIdForCompetitor(runId, pi, ci)),
+  );
+  const snapshots = await Promise.all(
+    ids.map((row) => Promise.all(row.map((id) => collection.doc(id).get()))),
+  );
+  return snapshots.map((row) =>
+    row.map((snapshot) => {
+      if (!snapshot.exists) return { exists: false };
+      const data = snapshot.data() as { screenshot?: unknown; result?: unknown } | undefined;
+      const screenshot = typeof data?.screenshot === "string" ? data.screenshot : undefined;
+      const result = typeof data?.result === "string" && data.result.trim() ? data.result.trim() : undefined;
+      return { exists: true, ...(screenshot ? { screenshot } : {}), ...(result ? { result } : {}) };
+    }),
+  );
+}
+
 function withPageArtifacts(
   audit: UIAuditResponse,
   artifacts: Map<number, PageTaskArtifact>,
@@ -211,7 +274,9 @@ function withPageArtifacts(
         ...(artifact.audit_status ? { audit_status: artifact.audit_status } : {}),
         ...(artifact.audit_result ? { audit_result: artifact.audit_result } : {}),
         ...(artifact.screenshot ? { screenshot: artifact.screenshot } : {}),
+        ...(artifact.redo_screenshot ? { redo_screenshot: artifact.redo_screenshot } : {}),
         ...(artifact.eyeshot ? { eyeshot: artifact.eyeshot } : {}),
+        ...(artifact.clarity ? { clarity: artifact.clarity } : {}),
       };
     }),
   };
@@ -476,4 +541,89 @@ export async function saveRoiDocumentContent(runId: string, content: string): Pr
     .collection(ROI_COLLECTION)
     .doc(runId)
     .set({ content, updatedAt: now }, { merge: true });
+}
+
+function parseSlideReport(value: unknown): SlideReport | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const d = value as Record<string, unknown>;
+
+  const findings = Array.isArray(d.findings)
+    ? (d.findings as unknown[]).map((f): SlideFinding | null => {
+        if (!f || typeof f !== "object") return null;
+        const fi = f as Record<string, unknown>;
+        if (typeof fi.problem_discovered !== "string" || typeof fi.description_of_problem !== "string") return null;
+        return {
+          category: typeof fi.category === "string" ? fi.category : undefined,
+          problem_discovered: fi.problem_discovered,
+          description_of_problem: fi.description_of_problem,
+          status: typeof fi.status === "string" ? fi.status : undefined,
+          reasoning: typeof fi.reasoning === "string" ? fi.reasoning : undefined,
+          score: typeof fi.score === "number" ? fi.score : 0,
+        };
+      }).filter((f): f is SlideFinding => f !== null)
+    : undefined;
+
+  const recommendations = Array.isArray(d.recommendations)
+    ? (d.recommendations as unknown[]).map((r): SlideRecommendation | null => {
+        if (!r || typeof r !== "object") return null;
+        const ri = r as Record<string, unknown>;
+        return {
+          recommendation: typeof ri.recommendation === "string" ? ri.recommendation : undefined,
+          priority: typeof ri.priority === "string" ? ri.priority : undefined,
+          action: typeof ri.action === "string" ? ri.action : undefined,
+          impact: typeof ri.impact === "string" ? ri.impact : undefined,
+        };
+      }).filter((r): r is SlideRecommendation => r !== null)
+    : undefined;
+
+  let media_metrics: SlideMediaMetrics | undefined;
+  if (d.media_metrics && typeof d.media_metrics === "object") {
+    const m = d.media_metrics as Record<string, unknown>;
+    media_metrics = {
+      media_spend: typeof m.media_spend === "number" ? m.media_spend : undefined,
+      media_traffic: typeof m.media_traffic === "number" ? m.media_traffic : undefined,
+      media_transactions: typeof m.media_transactions === "number" ? m.media_transactions : undefined,
+      revenue_per_sale: typeof m.revenue_per_sale === "number" ? m.revenue_per_sale : undefined,
+      currency: typeof m.currency === "string" ? m.currency : undefined,
+      current_cvr: typeof m.current_cvr === "number" ? m.current_cvr : undefined,
+      cvr_lift: typeof m.cvr_lift === "number" ? m.cvr_lift : undefined,
+      projected_cvr: typeof m.projected_cvr === "number" ? m.projected_cvr : undefined,
+      revenue_opp: typeof m.revenue_opp === "number" ? m.revenue_opp : undefined,
+      annual_cost: typeof m.annual_cost === "number" ? m.annual_cost : undefined,
+      roi_percentage: typeof m.roi_percentage === "number" ? m.roi_percentage : undefined,
+    };
+  }
+
+  return {
+    final_score: typeof d.final_score === "number" ? d.final_score : undefined,
+    url: typeof d.url === "string" ? d.url : undefined,
+    vertical: typeof d.vertical === "string" ? d.vertical : undefined,
+    clientName: typeof d.clientName === "string" ? d.clientName : undefined,
+    status: typeof d.status === "string" ? d.status : undefined,
+    executive_summary: typeof d.executive_summary === "string" ? d.executive_summary : undefined,
+    media_metrics,
+    findings,
+    recommendations,
+  };
+}
+
+export async function getPageReports(
+  runId: string,
+  pageCount: number,
+): Promise<(SlideReport | null)[]> {
+  if (!runId.trim() || pageCount <= 0) {
+    return [];
+  }
+  const collection = getFirestoreClient().collection(REPORTS_COLLECTION);
+  const snapshots = await Promise.all(
+    Array.from({ length: pageCount }, (_, pageIndex) =>
+      collection.doc(`${runId}_page_${pageIndex}`).get(),
+    ),
+  );
+  return snapshots.map((snapshot) => {
+    if (!snapshot.exists) return null;
+    return parseSlideReport(snapshot.data());
+  });
 }

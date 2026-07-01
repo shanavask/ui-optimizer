@@ -4,6 +4,7 @@ babel>=2.18.0
 CurrencyConverter>=0.18.17
 google-genai>=1.65.0
 google-cloud-firestore>=2.27.0
+google-cloud-storage>=3.10.1
 google-api-python-client>=2.194.0
 google-cloud-secret-manager>=2.27.0
 pillow>=12.2.0
