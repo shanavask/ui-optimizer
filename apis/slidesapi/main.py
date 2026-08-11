@@ -59,10 +59,14 @@ def get_creds():
     if not secret_name:
         raise RuntimeError("SERVICE_SECRET is required to load Slides API credentials.")
 
-    client = SecretManagerServiceClient()
-    name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-    response = client.access_secret_version(name=name)
-    creds_json = json.loads(response.payload.data.decode('UTF-8'))
+    try:
+        client = SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(name=name)
+        creds_json = json.loads(response.payload.data.decode('UTF-8'))
+    except Exception:
+        logger.exception(f"Failed to load service account credentials from secret '{secret_name}'")
+        raise
 
     scopes = [
         'https://www.googleapis.com/auth/spreadsheets',
@@ -278,6 +282,9 @@ def generate_eye_shot(run_id: str, page_id: int | None = None) -> str:
     client = _firestore_client()
     if client is None: return
     run_doc = client.collection("runs").document(run_id).get().to_dict()
+    if run_doc is None:
+        logger.error(f"Run {run_id} not found in Firestore")
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     company_name = run_doc['audit']['company_name']
     num_pages = len(run_doc['audit']['pages'])
     page_ids = [page_id] if page_id is not None else range(num_pages)
@@ -285,29 +292,33 @@ def generate_eye_shot(run_id: str, page_id: int | None = None) -> str:
     bucket = storage_client.bucket(STORAGE_BUCKET)
     for pid in page_ids:
         task_id = f"{run_id}_page_{pid}"
-        audit_doc = client.collection("audits").document(f"{task_id}_redo").get()
-        if not audit_doc.exists:
-            audit_doc = client.collection("audits").document(task_id).get()
-        audit_dict = audit_doc.to_dict()
-        raw_screenshot = audit_dict['screenshot']
-        if raw_screenshot.startswith("gs://"):
-            without_scheme = raw_screenshot[len("gs://"):]
-            bucket_name, blob_path = without_scheme.split("/", 1)
-            image_bytes = storage_client.bucket(bucket_name).blob(blob_path).download_as_bytes()
-            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        else:
-            image_b64 = raw_screenshot
-        attention_b64, clarity_b64, outputs = run_eyequant_analysis(image_b64, company_name)
-        eyeshot_path = f"eyequant/{company_name}_{task_id}_eyeshot.png"
-        clarity_path = f"eyequant/{company_name}_{task_id}_clarity.png"
-        bucket.blob(eyeshot_path).upload_from_string(base64.b64decode(attention_b64), content_type="image/png")
-        bucket.blob(clarity_path).upload_from_string(base64.b64decode(clarity_b64), content_type="image/png")
-        doc = {
-            "outputs": outputs,
-            "eyeshot": f"gs://{STORAGE_BUCKET}/{eyeshot_path}",
-            "clarity": f"gs://{STORAGE_BUCKET}/{clarity_path}",
-        }
-        client.collection("eyequant").document(task_id).set(doc)
+        try:
+            audit_doc = client.collection("audits").document(f"{task_id}_redo").get()
+            if not audit_doc.exists:
+                audit_doc = client.collection("audits").document(task_id).get()
+            audit_dict = audit_doc.to_dict()
+            raw_screenshot = audit_dict['screenshot']
+            if raw_screenshot.startswith("gs://"):
+                without_scheme = raw_screenshot[len("gs://"):]
+                bucket_name, blob_path = without_scheme.split("/", 1)
+                image_bytes = storage_client.bucket(bucket_name).blob(blob_path).download_as_bytes()
+                image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            else:
+                image_b64 = raw_screenshot
+            attention_b64, clarity_b64, outputs = run_eyequant_analysis(image_b64, company_name)
+            eyeshot_path = f"eyequant/{company_name}_{task_id}_eyeshot.png"
+            clarity_path = f"eyequant/{company_name}_{task_id}_clarity.png"
+            bucket.blob(eyeshot_path).upload_from_string(base64.b64decode(attention_b64), content_type="image/png")
+            bucket.blob(clarity_path).upload_from_string(base64.b64decode(clarity_b64), content_type="image/png")
+            doc = {
+                "outputs": outputs,
+                "eyeshot": f"gs://{STORAGE_BUCKET}/{eyeshot_path}",
+                "clarity": f"gs://{STORAGE_BUCKET}/{clarity_path}",
+            }
+            client.collection("eyequant").document(task_id).set(doc)
+        except Exception:
+            logger.exception(f"Error generating eye shot for task {task_id}")
+            raise
     return "success"
 
 
@@ -326,23 +337,26 @@ def create_slides(task_ids: list[str]) -> str:
     #     json_report(task_id)
 
     logger.info(f"Copying file for tasks: {task_ids}")
-    try: 
+    try:
         copied_file = copy_audit_slide(task_ids)
     except Exception as e:
+        logger.exception(f"Error copying template file for tasks {task_ids}")
         return f"Error in copying file {str(e)}"
     presentation_id = copied_file.get('id')
-    
+
     logger.info(f"Creating slides for tasks: {task_ids}")
-    try: 
+    try:
         for task_id in task_ids:
             status = create_slide_for_key(task_id, copied_file)
     except Exception as e:
+        logger.exception(f"Error creating slide for task {task_id} (presentation {presentation_id})")
         return f"Error in creating slides for audits {str(e)}"
 
     logger.info(f"Updating ROI slide for tasks: {task_ids}")
     try:
-        status = update_roi_slide(presentation_id, task_id)    
+        status = update_roi_slide(presentation_id, task_id)
     except Exception as e:
+        logger.exception(f"Error updating ROI slide for task {task_id} (presentation {presentation_id})")
         return f"Error in updating ROI slide {str(e)}"
     
     slides_url = f"https://docs.google.com/presentation/d/{presentation_id}/"
@@ -838,6 +852,7 @@ def update_roi_slide(presentation_id: str, task_id: str) -> None:
     try:
         cost_per_month = c.convert(12.5e3, 'USD', currency)
     except Exception as e:
+        logger.error(f"Currency conversion USD->{currency} failed, falling back to raw USD amount: {e}")
         cost_per_month = 12.5e3
     roi = (revenue_opp - cost_per_month * 12)
     annual_cost = cost_per_month * 12
