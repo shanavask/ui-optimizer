@@ -33,6 +33,14 @@ async function browserUseAuthHeaders(baseUrl: string): Promise<Record<string, st
   return { Authorization: authorizationHeader };
 }
 
+function normalizeUrl(url: string): string {
+  const trimmed = url.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
 function formatBestPractices(bestPractices: string[]): string {
   const rows = bestPractices
     .map((item) => item.trim())
@@ -43,6 +51,10 @@ function formatBestPractices(bestPractices: string[]): string {
 
 function buildBrowserUseTask(pageUrl: string, bestPractices: string): string {
   return `**Role:** You are a Senior UX Auditor. You produce two things: (1) a complete diagnostic rating of every provided best practice, and (2) a prioritized shortlist of exactly **7 problems** where the user experience is less than "Excellent."
+
+**Device Context:** You are operating an **iPhone browser** (mobile Safari on a small-screen device). All evaluations must be based on the **mobile experience** — assess touch targets, font sizes, layout reflow, scrollability, and mobile-specific interactions as seen on a phone screen.
+
+**Important:** The browser is already open and the page at ${pageUrl} is loaded. Do not navigate away from this page, open new tabs, or visit any other URL.
 
 **Objective:** Use the provided best practices as a diagnostic lens. First rate *all* of them. Then surface the 7 most important friction points.
 
@@ -173,7 +185,7 @@ export async function dispatchCompetitorTasks(
   await Promise.allSettled(
     audit.pages.flatMap((page, pageIndex) =>
       (audit.competitors ?? []).map(async (competitor, competitorIndex) => {
-        const competitorUrl = competitor.competitor_url?.trim();
+        const competitorUrl = competitor.competitor_url ? normalizeUrl(competitor.competitor_url) : undefined;
         if (!competitorUrl) {
           skipped.push(`page ${pageIndex} / competitor ${competitorIndex}: no URL`);
           return;
@@ -202,9 +214,10 @@ export async function dispatchRedoScreenshotTask(
   signal: AbortSignal,
 ): Promise<void> {
   const baseUrl = browserUseBaseUrl();
-  const task = `open the url ${pageUrl} and wait for the page to load, close any popups or messages and take a screenshot.`;
+  const normalizedUrl = normalizeUrl(pageUrl);
+  const task = `open the url ${normalizedUrl} and wait for the page to load, close any popups or messages and take a screenshot.`;
   const taskId = taskIdForRedoPage(runId, pageIndex);
-  await submitBrowserUseTask(baseUrl, pageUrl, task, taskId, signal);
+  await submitBrowserUseTask(baseUrl, normalizedUrl, task, taskId, signal);
 }
 
 export async function dispatchBrowserUseTasks(
@@ -220,7 +233,7 @@ export async function dispatchBrowserUseTasks(
     if (states.has(pageIndex)) {
       return;
     }
-    const pageUrl = page.url.trim();
+    const pageUrl = normalizeUrl(page.url);
     const task = buildBrowserUseTask(
       pageUrl,
       formatBestPractices(page.best_practices),

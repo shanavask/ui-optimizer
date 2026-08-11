@@ -41,6 +41,18 @@ resource "google_vertex_ai_reasoning_engine" "app" {
         value = google_storage_bucket.logs_data_bucket.name
       }
 
+      # GOOGLE_CLOUD_PROJECT is reserved by Agent Runtime (the platform injects
+      # it) and rejected in deployment_spec.env; GOOGLE_CLOUD_LOCATION is allowed.
+      env {
+        name  = "GOOGLE_CLOUD_LOCATION"
+        value = "global"
+      }
+
+      env {
+        name  = "GOOGLE_GENAI_USE_VERTEXAI"
+        value = "True"
+      }
+
       env {
         name  = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
         value = "true"

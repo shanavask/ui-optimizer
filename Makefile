@@ -4,10 +4,11 @@ include .env
 .PHONY: dev computer criteria-agent frontend
 
 # 	$(MAKE) criteria-agent & \
-
+# 	$(MAKE) auditor-agent & \
 # $(MAKE) guestimate-agent & \
 # 	$(MAKE) slides-api & \
 # SLIDES_API=http://localhost:5402 CRITERIA_AGENT=http://localhost:8001
+# AUDITOR_AGENT=http://localhost:8003 
 dev:
 	@trap 'trap - INT TERM; kill 0; exit 130' INT TERM; \
 	ID_TOKEN="$$(gcloud auth print-identity-token)"; \
@@ -29,6 +30,9 @@ criteria-agent:
 guestimate-agent:
 	uv run adk api_server agents/ui-audit-guestimate --host 0.0.0.0 --port 8002 --reload
 
+auditor-agent:
+	uv run adk api_server agents/ui-auditor --host 0.0.0.0 --port 8003 --reload
+
 frontend:
 	ID_TOKEN="$$(gcloud auth print-identity-token)"; \
 	export ID_TOKEN; \
@@ -49,6 +53,14 @@ deploy-guestimate:
 		--region $(GOOGLE_CLOUD_LOCATION) \
 		--update-env-vars \
 		    "GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_LOCATION), LLM_MODEL=$(LLM_MODEL), GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI), SIMILARWEB_API_KEY=$(SIMILARWEB_API_KEY)"
+
+deploy-audit:
+	cd agents/ui-auditor && \
+	agents-cli deploy \
+		--project $(GOOGLE_CLOUD_PROJECT) \
+		--region $(GOOGLE_CLOUD_LOCATION) \
+		--update-env-vars \
+		    "GOOGLE_CLOUD_REGION=$(GOOGLE_CLOUD_LOCATION),LLM_MODEL=$(LLM_MODEL),GOOGLE_GENAI_USE_VERTEXAI=$(GOOGLE_GENAI_USE_VERTEXAI),SIMILARWEB_API_KEY=$(SIMILARWEB_API_KEY),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID)"
 
 
 deploy-computer:
@@ -80,4 +92,4 @@ deploy-frontend:
 			--platform managed --no-allow-unauthenticated \
 			--timeout 3600 \
 			--set-env-vars \
-			"GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),STORAGE_BUCKET=$(STORAGE_BUCKET),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),CRITERIA_AGENT=$(CRITERIA_AGENT),GUESSTIMATE_AGENT=$(GUESSTIMATE_AGENT),COMPUTER_API=$(COMPUTER_API),SLIDES_API=$(SLIDES_API)" \
+			"GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),STORAGE_BUCKET=$(STORAGE_BUCKET),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),CRITERIA_AGENT=$(CRITERIA_AGENT),GUESSTIMATE_AGENT=$(GUESSTIMATE_AGENT),AUDITOR_AGENT=$(AUDITOR_AGENT),COMPUTER_API=$(COMPUTER_API),SLIDES_API=$(SLIDES_API)" \

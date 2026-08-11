@@ -11,7 +11,8 @@ const ROI_COLLECTION = "roi";
 const AUDITS_COLLECTION = "audits";
 const EYEQUANT_COLLECTION = "eyequant";
 const REPORTS_COLLECTION = "reports";
-const DEFAULT_RUNS_LIMIT = 50;
+const SHOTS_COLLECTION = "shots";
+const DEFAULT_RUNS_LIMIT = 10;
 
 let firestoreClient: Firestore | null = null;
 let cachedDatabaseId: string | null = null;
@@ -21,6 +22,7 @@ export type AuditRunSummary = {
   id: string;
   companyName: string;
   createdAtIso: string;
+  updatedAtIso: string;
 };
 
 function isStringArray(value: unknown): value is string[] {
@@ -431,6 +433,7 @@ function toAuditRunSummary(
   const doc = value as {
     audit?: { company_name?: unknown };
     createdAt?: unknown;
+    updatedAt?: unknown;
   };
   const companyName =
     typeof doc.audit?.company_name === "string"
@@ -441,24 +444,44 @@ function toAuditRunSummary(
   }
   const createdAt =
     doc.createdAt instanceof Timestamp ? doc.createdAt.toDate() : new Date(0);
+  const updatedAt =
+    doc.updatedAt instanceof Timestamp ? doc.updatedAt.toDate() : createdAt;
   return {
     id,
     companyName,
     createdAtIso: createdAt.toISOString(),
+    updatedAtIso: updatedAt.toISOString(),
   };
 }
 
+export type ListAuditRunsResult = {
+  runs: AuditRunSummary[];
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
 export async function listAuditRuns(
   limit: number = DEFAULT_RUNS_LIMIT,
-): Promise<AuditRunSummary[]> {
-  const snapshot = await getFirestoreClient()
+  startAfterIso?: string,
+): Promise<ListAuditRunsResult> {
+  let query = getFirestoreClient()
     .collection(RUNS_COLLECTION)
-    .orderBy("createdAt", "desc")
-    .limit(limit)
-    .get();
-  return snapshot.docs
+    .orderBy("updatedAt", "desc");
+
+  if (startAfterIso) {
+    query = query.startAfter(Timestamp.fromDate(new Date(startAfterIso)));
+  }
+
+  const snapshot = await query.limit(limit + 1).get();
+  const all = snapshot.docs
     .map((doc) => toAuditRunSummary(doc.id, doc.data()))
     .filter((item): item is AuditRunSummary => item !== null);
+
+  const hasMore = all.length > limit;
+  const runs = hasMore ? all.slice(0, limit) : all;
+  const nextCursor = hasMore ? (runs[runs.length - 1]?.updatedAtIso ?? null) : null;
+
+  return { runs, hasMore, nextCursor };
 }
 
 export async function getAuditRun(runId: string): Promise<UIAuditResponse | null> {
@@ -626,4 +649,31 @@ export async function getPageReports(
     if (!snapshot.exists) return null;
     return parseSlideReport(snapshot.data());
   });
+}
+
+function parseGuestimateMetrics(data: unknown): SlideMediaMetrics | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  const metrics: SlideMediaMetrics = {
+    media_spend: typeof d.media_spend === "number" ? d.media_spend : undefined,
+    media_traffic: typeof d.media_traffic === "number" ? d.media_traffic : undefined,
+    media_transactions: typeof d.media_transactions === "number" ? d.media_transactions : undefined,
+    revenue_per_sale: typeof d.revenue_per_sale === "number" ? d.revenue_per_sale : undefined,
+    currency: typeof d.currency === "string" ? d.currency : undefined,
+  };
+  const hasAny = Object.values(metrics).some((v) => v != null);
+  return hasAny ? metrics : null;
+}
+
+export async function getGuestimateReport(runId: string): Promise<SlideMediaMetrics | null> {
+  if (!runId.trim()) return null;
+  const snapshot = await getFirestoreClient().collection(REPORTS_COLLECTION).doc(runId).get();
+  if (!snapshot.exists) return null;
+  return parseGuestimateMetrics(snapshot.data());
+}
+
+export async function shotsDocumentExists(runId: string): Promise<boolean> {
+  if (!runId.trim()) return false;
+  const snapshot = await getFirestoreClient().collection(SHOTS_COLLECTION).doc(runId).get();
+  return snapshot.exists;
 }

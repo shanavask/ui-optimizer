@@ -40,7 +40,7 @@ async def save_output(callback_context: CallbackContext) -> None:
             {"content": output, "source": "guestimate-agent", "updatedAt": firestore.SERVER_TIMESTAMP},
             merge=True,
         )
-        await client.close()
+        client.close()
         logger.info("Saved guestimate to Firestore roi/%s", session_id)
     except Exception:
         logger.exception("Failed to save guestimate to Firestore roi/%s", session_id)

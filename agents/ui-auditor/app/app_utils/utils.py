@@ -1,13 +1,8 @@
 
 import os
 
-from google.cloud import firestore, storage
+from google.cloud import firestore
 from typing import Any, Optional
-
-GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT")
-GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION")
-STORAGE_BUCKET = os.getenv("STORAGE_BUCKET")
-
     
 def firestore_client() -> Optional[Any]:
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()

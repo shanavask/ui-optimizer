@@ -5,14 +5,14 @@ import { useCallback, useEffect, useState } from "react";
 import { AuditResultEditor } from "@/app/components/AuditResultEditor";
 import { AuditTabs } from "@/app/components/AuditTabs";
 import { taskIdForPage } from "@/lib/task-ids";
-import type { CompetitorArtifact, SlideReport, UIAuditResponse } from "@/types/audit";
+import type { CompetitorArtifact, SlideMediaMetrics, SlideReport, UIAuditResponse } from "@/types/audit";
 
 type AnalyzeResponse = { audit: UIAuditResponse; runId?: string };
 type ErrorBody = { error: string; rejectedUrls?: string[] };
 type SaveRunResponse = { runId: string; audit: UIAuditResponse };
 type CreateSlidesResponse = { slidesUrl: string };
 type SlidesUrlResponse = { slidesUrl: string | null };
-type SlideReportsResponse = { reports: (SlideReport | null)[] };
+type SlideReportsResponse = { reports: (SlideReport | null)[]; guestimateMetrics: SlideMediaMetrics | null };
 type EyeQuantResponse = { status: string };
 type RunCompetitorsResponse = { dispatched: string[]; skipped: string[]; errors: string[] };
 type RoiResponse = { exists: boolean; content: string | null };
@@ -22,8 +22,9 @@ type RunSummary = {
   id: string;
   companyName: string;
   createdAtIso: string;
+  updatedAtIso: string;
 };
-type RunsResponse = { runs: RunSummary[] };
+type RunsResponse = { runs: RunSummary[]; hasMore: boolean; nextCursor: string | null };
 const UI_AGENT_USERNAME = "ui-audit-user";
 
 async function getRunAudit(runId: string): Promise<UIAuditResponse> {
@@ -176,14 +177,31 @@ async function getSlidesUrl(runId: string): Promise<string | null> {
   return ok.slidesUrl ?? null;
 }
 
-async function getSlideReports(runId: string): Promise<(SlideReport | null)[]> {
+async function getSlideReports(runId: string): Promise<{ reports: (SlideReport | null)[]; guestimateMetrics: SlideMediaMetrics | null }> {
   const response = await fetch(`/api/slides/reports?runId=${encodeURIComponent(runId)}`);
   const data: unknown = await response.json();
   if (!response.ok) {
-    return [];
+    return { reports: [], guestimateMetrics: null };
   }
   const ok = data as SlideReportsResponse;
-  return Array.isArray(ok.reports) ? ok.reports : [];
+  return {
+    reports: Array.isArray(ok.reports) ? ok.reports : [],
+    guestimateMetrics: ok.guestimateMetrics ?? null,
+  };
+}
+
+async function postGenerateReport(runId: string, username?: string): Promise<void> {
+  const response = await fetch("/api/report/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runId, ...(username ? { username } : {}) }),
+  });
+  if (!response.ok) {
+    const data: unknown = await response.json();
+    const err = data as ErrorBody;
+    const detail = typeof err.error === "string" ? err.error : `HTTP ${response.status}`;
+    throw new Error(detail);
+  }
 }
 
 async function getCompetitorArtifacts(runId: string): Promise<CompetitorArtifact[][]> {
@@ -229,7 +247,10 @@ export default function HomePage(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [runsLoading, setRunsLoading] = useState(true);
+  const [runsLoadingMore, setRunsLoadingMore] = useState(false);
   const [runsError, setRunsError] = useState<string | null>(null);
+  const [hasMoreRuns, setHasMoreRuns] = useState(false);
+  const [runsCursor, setRunsCursor] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
   const [runDetailLoadingId, setRunDetailLoadingId] = useState<string | null>(null);
@@ -237,15 +258,20 @@ export default function HomePage(): React.JSX.Element {
   const [runningEyeQuant, setRunningEyeQuant] = useState(false);
   const [redoingEyeQuantPage, setRedoingEyeQuantPage] = useState<number | null>(null);
   const [runningCompetitors, setRunningCompetitors] = useState(false);
+  const [auditingCompetitors, setAuditingCompetitors] = useState(false);
+  const [competitorAuditDone, setCompetitorAuditDone] = useState(false);
   const [guestimatingRoi, setGuestimatingRoi] = useState(false);
   const [slidesUrl, setSlidesUrl] = useState<string | null>(null);
+  const [slidesError, setSlidesError] = useState<string | null>(null);
   const [slideReports, setSlideReports] = useState<(SlideReport | null)[]>([]);
+  const [guestimateMetrics, setGuestimateMetrics] = useState<SlideMediaMetrics | null>(null);
   const [competitorArtifacts, setCompetitorArtifacts] = useState<CompetitorArtifact[][]>([]);
   const [guestimateContent, setGuestimateContent] = useState<string>("");
   const [hasRoiDocument, setHasRoiDocument] = useState<boolean>(false);
 
-  const fetchRuns = useCallback(async (): Promise<RunSummary[]> => {
-    const response = await fetch("/api/runs");
+  const fetchRuns = useCallback(async (cursor?: string): Promise<RunsResponse> => {
+    const url = cursor ? `/api/runs?cursor=${encodeURIComponent(cursor)}` : "/api/runs";
+    const response = await fetch(url);
     const data: unknown = await response.json();
     if (!response.ok) {
       const err = data as ErrorBody;
@@ -253,28 +279,23 @@ export default function HomePage(): React.JSX.Element {
         typeof err.error === "string" ? err.error : `HTTP ${response.status}`;
       throw new Error(detail);
     }
-    const ok = data as RunsResponse;
-    return ok.runs;
+    return data as RunsResponse;
   }, []);
 
   useEffect(() => {
     let isMounted = true;
     const loadInitialRuns = async () => {
       try {
-        const nextRuns = await fetchRuns();
-        if (!isMounted) {
-          return;
-        }
-        setRuns(nextRuns);
+        const result = await fetchRuns();
+        if (!isMounted) return;
+        setRuns(result.runs);
+        setHasMoreRuns(result.hasMore);
+        setRunsCursor(result.nextCursor);
       } catch (err) {
-        if (!isMounted) {
-          return;
-        }
+        if (!isMounted) return;
         setRunsError(err instanceof Error ? err.message : "Failed to load runs");
       } finally {
-        if (isMounted) {
-          setRunsLoading(false);
-        }
+        if (isMounted) setRunsLoading(false);
       }
     };
     void loadInitialRuns();
@@ -287,14 +308,32 @@ export default function HomePage(): React.JSX.Element {
     setRunsLoading(true);
     setRunsError(null);
     try {
-      const nextRuns = await fetchRuns();
-      setRuns(nextRuns);
+      const result = await fetchRuns();
+      setRuns(result.runs);
+      setHasMoreRuns(result.hasMore);
+      setRunsCursor(result.nextCursor);
     } catch (err) {
       setRunsError(err instanceof Error ? err.message : "Failed to load runs");
     } finally {
       setRunsLoading(false);
     }
   }, [fetchRuns]);
+
+  const loadMoreRuns = useCallback(async () => {
+    if (!runsCursor) return;
+    setRunsLoadingMore(true);
+    setRunsError(null);
+    try {
+      const result = await fetchRuns(runsCursor);
+      setRuns((prev) => [...prev, ...result.runs]);
+      setHasMoreRuns(result.hasMore);
+      setRunsCursor(result.nextCursor);
+    } catch (err) {
+      setRunsError(err instanceof Error ? err.message : "Failed to load more runs");
+    } finally {
+      setRunsLoadingMore(false);
+    }
+  }, [fetchRuns, runsCursor]);
 
   const runAudit = useCallback(
     async (
@@ -309,10 +348,9 @@ export default function HomePage(): React.JSX.Element {
         const result = await postAnalyze(inputUrls, saveRun, UI_AGENT_USERNAME, runId);
         setAudit(result.audit);
         setSlidesUrl(null);
-        if (saveRun && result.runId) {
+        if (result.runId) {
           setSelectedRunId(result.runId);
-        }
-        if (!saveRun) {
+        } else {
           setSelectedRunId(null);
         }
       } catch (err) {
@@ -346,6 +384,7 @@ export default function HomePage(): React.JSX.Element {
       setAudit(result.audit);
       setSelectedRunId(result.runId);
       setSlidesUrl(null);
+      setSlidesError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
     } finally {
@@ -355,19 +394,23 @@ export default function HomePage(): React.JSX.Element {
 
   const onSelectRun = useCallback(async (runId: string) => {
     setError(null);
+    setSlidesError(null);
     setRunDetailLoadingId(runId);
     try {
-      const [nextAudit, existingSlidesUrl, reports, compArtifacts] = await Promise.all([
+      const [nextAudit, existingSlidesUrl, slideData, compArtifacts, auditStatusRes] = await Promise.all([
         getRunAudit(runId),
         getSlidesUrl(runId),
         getSlideReports(runId),
         getCompetitorArtifacts(runId),
+        fetch(`/api/competitors/audit?runId=${encodeURIComponent(runId)}`).then((r) => r.json() as Promise<{ exists?: boolean }>),
       ]);
       setAudit(nextAudit);
       setSelectedRunId(runId);
       setSlidesUrl(existingSlidesUrl);
-      setSlideReports(reports);
+      setSlideReports(slideData.reports);
+      setGuestimateMetrics(slideData.guestimateMetrics);
       setCompetitorArtifacts(compArtifacts);
+      setCompetitorAuditDone(auditStatusRes.exists === true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load run");
     } finally {
@@ -388,7 +431,9 @@ export default function HomePage(): React.JSX.Element {
           setAudit(null);
           setSlidesUrl(null);
           setSlideReports([]);
+          setGuestimateMetrics(null);
           setCompetitorArtifacts([]);
+          setCompetitorAuditDone(false);
           setGuestimateContent("");
           setHasRoiDocument(false);
         }
@@ -407,18 +452,21 @@ export default function HomePage(): React.JSX.Element {
       return;
     }
     setError(null);
+    setSlidesError(null);
     setCreatingSlides(true);
     try {
+      await postGenerateReport(selectedRunId, UI_AGENT_USERNAME);
+      const slideData = await getSlideReports(selectedRunId);
+      setSlideReports(slideData.reports);
+      setGuestimateMetrics(slideData.guestimateMetrics);
       const taskIds = audit.pages.map((_, pageIndex) =>
         taskIdForPage(selectedRunId, pageIndex),
       );
       const result = await postCreateSlides(taskIds, selectedRunId);
       setSlidesUrl(result.slidesUrl);
-      const reports = await getSlideReports(selectedRunId);
-      setSlideReports(reports);
     } catch (err) {
       setSlidesUrl(null);
-      setError(err instanceof Error ? err.message : "Failed to create slides");
+      setSlidesError(err instanceof Error ? err.message : "Failed to create slides");
     } finally {
       setCreatingSlides(false);
     }
@@ -495,6 +543,34 @@ export default function HomePage(): React.JSX.Element {
       setRedoingEyeQuantPage(null);
     }
   }, [audit, selectedRunId]);
+
+  const onAuditCompetitors = useCallback(async () => {
+    if (!selectedRunId) return;
+    setError(null);
+    setAuditingCompetitors(true);
+    try {
+      const response = await fetch("/api/competitors/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: selectedRunId }),
+      });
+      const data: unknown = await response.json();
+      if (!response.ok) {
+        const err = data as { error?: string };
+        throw new Error(typeof err.error === "string" ? err.error : `HTTP ${response.status}`);
+      }
+      const result = data as { dispatched: string[]; skipped: string[]; errors: string[] };
+      if (result.errors.length > 0) {
+        setError(`Some competitor audits failed: ${result.errors.join(", ")}`);
+      } else {
+        setCompetitorAuditDone(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to audit competitors");
+    } finally {
+      setAuditingCompetitors(false);
+    }
+  }, [selectedRunId]);
 
   const onRunCompetitors = useCallback(async () => {
     if (!selectedRunId) return;
@@ -628,7 +704,7 @@ export default function HomePage(): React.JSX.Element {
                   disabled={runDetailLoadingId === run.id || deletingRunId === run.id}
                 >
                   <p className="runs-company">{run.companyName}</p>
-                  <p className="runs-date">{formatRunDate(run.createdAtIso)}</p>
+                  <p className="runs-date">{formatRunDate(run.updatedAtIso)}</p>
                   {runDetailLoadingId === run.id ? (
                     <p className="runs-loading-indicator">Opening...</p>
                   ) : null}
@@ -662,6 +738,16 @@ export default function HomePage(): React.JSX.Element {
             </li>
           ))}
         </ul>
+        {hasMoreRuns ? (
+          <button
+            type="button"
+            className="runs-load-more-button"
+            onClick={() => void loadMoreRuns()}
+            disabled={runsLoadingMore}
+          >
+            {runsLoadingMore ? "Loading..." : "Load more"}
+          </button>
+        ) : null}
       </aside>
       <section className={`card ${audit ? "card-wide card-audit-view" : ""}`}>
         {!audit ? (
@@ -694,6 +780,7 @@ export default function HomePage(): React.JSX.Element {
             audit={audit}
             onChange={setAudit}
             agentUsername={UI_AGENT_USERNAME}
+            sessionId={selectedRunId ?? undefined}
             loading={loading}
             onRunAudit={onRunAuditFromData}
             guestimateContent={guestimateContent}
@@ -706,12 +793,17 @@ export default function HomePage(): React.JSX.Element {
             onRedoEyeQuantPage={onRedoEyeQuantPage}
             redoingEyeQuantPage={redoingEyeQuantPage}
             slidesUrl={slidesUrl}
+            slidesError={slidesError}
             onCreateSlides={onCreateSlides}
             creatingSlides={creatingSlides}
             slideReports={slideReports}
+            guestimateMetrics={guestimateMetrics}
             onRunCompetitors={onRunCompetitors}
             runningCompetitors={runningCompetitors}
             competitorArtifacts={competitorArtifacts}
+            onAuditCompetitors={onAuditCompetitors}
+            auditingCompetitors={auditingCompetitors}
+            competitorAuditDone={competitorAuditDone}
           />
         ) : (
           <AuditResultEditor

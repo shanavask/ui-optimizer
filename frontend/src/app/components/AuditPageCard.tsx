@@ -192,7 +192,7 @@ export function AuditPageCard({
               rememberingPage
             }
           >
-            {rememberingPage ? "Saving..." : "Remember this"}
+            {rememberingPage ? "Saving..." : "Remember these best practices"}
           </button>
           {rememberStatus ? <p className="audit-remember-status">{rememberStatus}</p> : null}
           {rememberError ? (

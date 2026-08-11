@@ -59,6 +59,17 @@ body {
   color: #67e8f9;
 }
 
+.slides-error-banner {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.625rem;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  background: rgba(220, 38, 38, 0.15);
+  color: #fecaca;
+  font-size: 0.9rem;
+}
+
 .guestimate-box {
   resize: none;
   overflow: hidden;
@@ -101,6 +112,30 @@ body {
 }
 
 .runs-refresh-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.runs-load-more-button {
+  display: block;
+  width: 100%;
+  margin-top: 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(71, 85, 105, 0.55);
+  padding: 0.45rem 0.6rem;
+  background: transparent;
+  color: #94a3b8;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.runs-load-more-button:hover:not(:disabled) {
+  border-color: rgba(56, 189, 248, 0.75);
+  color: #e0f2fe;
+}
+
+.runs-load-more-button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }

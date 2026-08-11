@@ -75,8 +75,22 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
         method = resolve_method(body["class_method"], streaming=True)
 
         async def generator():
-            async for event in method(**(body.get("input") or {})):
-                yield json.dumps(event) + "\n"
+            input_data = dict(body.get("input") or {})
+            image_base64 = input_data.pop("image_base64", None)
+            if image_base64:
+                message_text = input_data.get("message", "")
+                parts = []
+                if message_text:
+                    parts.append({"text": message_text})
+                parts.append({"inline_data": {"mime_type": "image/png", "data": image_base64}})
+                input_data["message"] = {"role": "user", "parts": parts}
+            result = method(**input_data)
+            if hasattr(result, "__aiter__"):
+                async for event in result:
+                    yield json.dumps(event) + "\n"
+            else:
+                for event in result:
+                    yield json.dumps(event) + "\n"
 
         return responses.StreamingResponse(
             content=generator(), media_type="application/json"

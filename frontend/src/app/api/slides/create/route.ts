@@ -150,6 +150,13 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
     const slidesUrl = text.replace(/^"|"$/g, "").trim();
+    // The Slides API can return 200 OK with an error message as the body instead of a real URL.
+    if (!/^https?:\/\//i.test(slidesUrl)) {
+      return NextResponse.json(
+        { error: slidesUrl || "Slides API returned an unexpected response." },
+        { status: 502 },
+      );
+    }
     return NextResponse.json({ slidesUrl });
   } catch (error: unknown) {
     const message =

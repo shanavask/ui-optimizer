@@ -4,17 +4,20 @@ import { dispatchBrowserUseTasks } from "@/lib/browseruse";
 import {
   listAuditRuns,
   parseUIAuditResponse,
-  saveAuditRun,
 } from "@/lib/firestore-runs";
 
 export const runtime = "nodejs";
 
 type RunsPostBody = { audit?: unknown; runId?: unknown };
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   try {
-    const runs = await listAuditRuns();
-    return NextResponse.json({ runs });
+    const { searchParams } = new URL(request.url);
+    const limitParam = searchParams.get("limit");
+    const limit = limitParam ? Math.max(1, Math.min(100, parseInt(limitParam, 10))) : undefined;
+    const cursor = searchParams.get("cursor") ?? undefined;
+    const result = await listAuditRuns(limit, cursor);
+    return NextResponse.json(result);
   } catch (error: unknown) {
     console.error("Failed listing audit runs", error);
     return NextResponse.json(
@@ -45,13 +48,15 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const runId = body.runId?.trim();
-    const savedRunId = await saveAuditRun(audit, runId);
+    if (!runId) {
+      return NextResponse.json({ error: "runId is required." }, { status: 400 });
+    }
     const auditWithTaskState = await dispatchBrowserUseTasks(
       audit,
       controller.signal,
-      savedRunId,
+      runId,
     );
-    return NextResponse.json({ runId: savedRunId, audit: auditWithTaskState });
+    return NextResponse.json({ runId, audit: auditWithTaskState });
   } catch (error: unknown) {
     console.error("Failed saving audit run", error);
     const status = error instanceof Error && error.name === "AbortError" ? 504 : 500;

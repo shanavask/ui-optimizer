@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getAuditRun, getPageReports } from "@/lib/firestore-runs";
+import { getAuditRun, getGuestimateReport, getPageReports } from "@/lib/firestore-runs";
 
 export const runtime = "nodejs";
 
@@ -13,8 +13,11 @@ export async function GET(request: Request): Promise<Response> {
     }
     const audit = await getAuditRun(runId);
     const pageCount = audit?.pages.length ?? 0;
-    const reports = await getPageReports(runId, pageCount);
-    return NextResponse.json({ reports });
+    const [reports, guestimateMetrics] = await Promise.all([
+      getPageReports(runId, pageCount),
+      getGuestimateReport(runId),
+    ]);
+    return NextResponse.json({ reports, guestimateMetrics: guestimateMetrics ?? null });
   } catch (error: unknown) {
     const message =
       error instanceof Error && error.message.trim()

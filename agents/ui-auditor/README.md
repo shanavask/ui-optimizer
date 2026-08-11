@@ -1,7 +1,7 @@
 # ui-auditor
 
 Simple ReAct agent
-Agent generated with `agents-cli` version `0.6.1`
+Agent generated with `agents-cli` version `1.0.0`
 
 ## Project Structure
 

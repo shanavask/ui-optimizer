@@ -10,8 +10,7 @@ from google.adk.tools.tool_context import ToolContext
 from google.cloud import firestore
 # from dotenv import load_dotenv
 from google.genai import types
-from pydantic import BaseModel
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from .tools import load_web_page
 from .prompts import CRITERIA_PROMPT
@@ -66,7 +65,7 @@ async def save_output(callback_context: CallbackContext) -> None:
             {"audit": output, "source": "criteria-agent", "updatedAt": firestore.SERVER_TIMESTAMP},
             merge=True,
         )
-        await client.close()
+        client.close()
         logger.info("Saved audit to Firestore runs/%s", session_id)
     except Exception:
         logger.exception("Failed to save audit to Firestore runs/%s", session_id)

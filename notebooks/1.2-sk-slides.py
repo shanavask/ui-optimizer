@@ -1,18 +1,22 @@
 # %%
 import os
 import json
-from google.cloud import firestore
+from google.cloud import firestore, storage
+import logging
 import base64
+
+from babel.numbers import format_currency
+from currency_converter import CurrencyConverter
 # %%
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
 database_id = os.getenv("FIRESTORE_DATABASE_ID", "").strip()
 location = os.getenv("GOOGLE_CLOUD_LOCATION", "").strip()
 model = os.getenv("LLM_MODEL", "").strip()
 # %%
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 client = firestore.Client(project=project_id, database=database_id)
-# %%
-task_id = 'fLx9dMMP5Gerd4BJAMmQ_page_0'
-page_id = int(task_id.split('_')[-1])
 # %%
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -27,37 +31,50 @@ TEMPLATE_FILE_KEY = os.getenv("TEMPLATE_FILE_KEY", "").strip()
 # %%
 TEMPLATE_FILE_KEY = '1fNTLOrXjA6GNjZCApepzTCTDYFItHeqDGHxmyTS3hEU'
 # %%
-run_id = '0Diu3gVcxEz1PL3QQrkx'
+task_id = "8130189747764068352_page_0"
+run_id, page_id = task_id.split('_page_')
 run_doc = client.collection("runs").document(run_id).get().to_dict()
 num_pages = len(run_doc['audit']['pages'])
 task_ids = [f"{run_id}_page_{pid}" for pid in range(num_pages)]
 task_ids
 # %%
+json_report = _get_json_report_from_firestore(task_id)
+# %%
+pages = run_doc.get('audit', {}).get('pages', [])
+page = pages[int(page_id)] if int(page_id) < len(pages) else {}
+url = page.get('url', 'http://example.com')
+page_type = page.get('page_type', 'Unknown')
+# %%
+comps = run_doc.get('audit', {}).get('competitors')
+comps
+# %%
+# comp_doc = client.collection("shots").document(run_id).get()
+# comp_doc = comp_doc.to_dict()
+comp_doc = _get_doc_from_firestore("shots", run_id)
+comp_doc 
+# %%
+for comp in comps:
+    url = comp.get('competitor_url')
+    audit = [u.get('audit', {}).get('score') for u in comp_doc.values() if u.get('audit', {}).get('page_url') == url]
+    score = audit[0] if audit else 0
+    comp['competitor_score'] = score
+# %%
+comp
+# %%
+comp_doc = comp_doc if comp_doc else {}
+# %%
 copied_file = copy_audit_slide(task_ids)
-# # %%
-# task_ids = [task_id]
-# doc = _get_json_report_from_firestore(task_ids[0])
-# client = doc.get('clientName')
-# vertical = doc.get('vertical')
-# client
-# # %%
-# creds = get_creds()
-# slides_service = build("slides", "v1", credentials=creds)
-# presentation_id = '1HWD0tYDmFEFtXXjAJr9qo-IkKODbFjmB80HSE6f3ZWg'
-# presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
-# slides = presentation.get("slides")
+
 # %%
 presentation_id = copied_file.get('id')
-
 for task_id in task_ids:
     status = create_slide_for_key(task_id, copied_file)
-
 # %%
 status = update_roi_slide(presentation_id, task_id)    
-# except Exception as e:
-#     return f"Error in updating ROI slide {str(e)}"
-
-# slides_url = f"https://docs.google.com/presentation/d/{presentation_id}/"
+status
+# %%
+slides_url = f"https://docs.google.com/presentation/d/{presentation_id}/"
+slides_url
 # %%
 task_id = task_ids[0]
 json_report = _get_json_report_from_firestore(task_id)
@@ -77,22 +94,40 @@ def _write_image(value: str, local_path: str) -> None:
         _download_gcs(value, local_path)
     else:
         open(local_path, 'wb').write(base64.b64decode(value))
-client = json_report.get('clientName')
-page_type = json_report.get('page_type')
-vertical = json_report.get('vertical')
-url = json_report.get('url')
+# %%
+run_id, page_id = task_id.split('_page_')
+json_report = _get_json_report_from_firestore(task_id)
+run_doc = _get_doc_from_firestore("runs", run_id)
+audit_doc = _get_doc_from_firestore("audits", task_id)
+eyequant_doc = _get_doc_from_firestore("eyequant", task_id)
+screenshot = audit_doc.get('screenshot')
+eyeshot = eyequant_doc.get('eyeshot')
+clarity = eyequant_doc.get('clarity')
+
+def _download_gcs(gs_path: str, local_path: str) -> None:
+    without_scheme = gs_path[len("gs://"):]
+    bucket_name, blob_path = without_scheme.split("/", 1)
+    storage.Client().bucket(bucket_name).blob(blob_path).download_to_filename(local_path)
+
+def _write_image(value: str, local_path: str) -> None:
+    if value.startswith("gs://"):
+        _download_gcs(value, local_path)
+    else:
+        open(local_path, 'wb').write(base64.b64decode(value))
+
+
+client = json_report.get('company_name')
+pages = run_doc.get('audit', {}).get('pages', [])
+page = pages[int(page_id)] if int(page_id) < len(pages) else {}
+url = page.get('url', 'http://example.com')
+page_type = page.get('page_type', 'Unknown')
+vertical = run_doc.get('audit', {}).get('vertical', 'Unknown')
 score = json_report.get('final_score')
 findings = json_report.get('findings')
 
-# screenshot_artifact_file = tool_context.state.get(f'screenshot_{auditor_key}', '')
-# screenshot_artifact_file = f"screenshot_{task_id}.png"
-# img_artifact = await tool_context.load_artifact(filename=screenshot_artifact_file)
-# data = img_artifact.inline_data.data
 if screenshot is not None: _write_image(screenshot, '/tmp/screenshot.png')
 if eyeshot is not None: _write_image(eyeshot, '/tmp/eyeshot.png')
 if clarity is not None: _write_image(clarity, '/tmp/clarity.png')
-# image_name = os.path.basename(f'/tmp/{screenshot}')    
-# mimetype, _ = mimetypes.guess_type(f'/tmp/{screenshot}')
 
 creds = get_creds()
 drive_service = build("drive", "v3", credentials=creds)
@@ -101,11 +136,11 @@ slides_service = build("slides", "v1", credentials=creds)
 
 client_folder_id = copied_file.get('client_folder_id')
 presentation_id = copied_file.get('id')
-# %%
+
 presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
 slides = presentation.get("slides")
 # ------------------------------------
-
+# %%
 # update the recommendations slide    
 slide = [slide for slide in slides if slide['objectId']==f'slide_{task_id}'][0]
 
@@ -154,15 +189,8 @@ requests = [
 slides_service.presentations().batchUpdate(
     presentationId=presentation_id, body={"requests": requests}
 ).execute()
+# %%
 # ------------------------------------
-# %%
-for element in slide['pageElements']:
-    if 'description' in element and element['description'] == '{{new_image}}':        
-        print('found')
-        break
-# %%
-element
-# %%
 # insert recommendations with styling
 for element in slide['pageElements']:
     if 'description' in element and element['description'] == '{{recommendations}}':        
@@ -281,7 +309,7 @@ logger.info(f"Copying screenshot image to drive for task {task_id}")
 if screenshot is not None: img_file = copy_to_drive(img_folder_id, 'screenshot.png', drive_service)
 if eyeshot is not None: eyeshot_file = copy_to_drive(img_folder_id, 'eyeshot.png', drive_service)
 if clarity is not None: clarity_file = copy_to_drive(img_folder_id, 'clarity.png', drive_service)
-# %%
+
 # insert images into slide
 logger.info(f"Inserting images into slide for task {task_id}")
 if screenshot is not None: insert_images_into_slide(presentation_id, img_file, task_id, 'screenshot', slides_service)
@@ -338,6 +366,22 @@ def _get_doc_from_firestore(collection: str, doc_id: str) -> dict:
         return
     doc = client.collection(collection).document(doc_id).get()
     return doc.to_dict()
+
+def _get_json_report_from_firestore(task_id: str) -> dict:
+    client = _firestore_client()
+    if client is None:
+        return
+    doc = client.collection("reports").document(task_id).get()
+    return doc.to_dict()
+
+def _save_slides_url_to_firestore(task_id: str, slides_url: str) -> None:
+    client = _firestore_client()
+    if client is None:
+        return
+    client.collection("slides").document(task_id).set({'slides_url': slides_url})
+    return "success"
+
+# %%
 
 def _get_json_report_from_firestore(task_id: str) -> dict:
     client = _firestore_client()
@@ -501,7 +545,7 @@ def create_slide_for_key(task_id: str, copied_file: dict) -> str:
 
     client_folder_id = copied_file.get('client_folder_id')
     presentation_id = copied_file.get('id')
-    # %%
+
     presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
     slides = presentation.get("slides")
     # ------------------------------------
@@ -720,7 +764,7 @@ def insert_images_into_slide(presentation_id: str, img_file: Any, task_id: str, 
     """
     # insert image into slide
     page_id = f'slide_{task_id}'
-    object_id = f"MyImage_{task_id}_{file_name}"
+    object_id = f"MyImage_{file_name}"
     image_url = img_file.get('webContentLink')
     requests = [
         {
@@ -743,14 +787,18 @@ def insert_images_into_slide(presentation_id: str, img_file: Any, task_id: str, 
     slides_service.presentations().batchUpdate(
         presentationId=presentation_id, body={"requests": requests}
     ).execute()
-
+# %%
+json_report = _get_json_report_from_firestore(run_id)
+# roi_calc = json_report['media_metrics']
+json_report
+# %%
 def update_roi_slide(presentation_id: str, task_id: str) -> None:
     """
     Update the ROI slide with calculated values.
     """      
 
-    json_report = _get_json_report_from_firestore(task_id)
-    roi_calc = json_report['media_metrics']
+    run_id, page_id = task_id.split('_page_')
+    roi_calc = _get_json_report_from_firestore(run_id)
 
     creds = get_creds()
     slides_service = build("slides", "v1", credentials=creds)

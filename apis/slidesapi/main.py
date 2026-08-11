@@ -90,177 +90,177 @@ def _get_doc_from_firestore(collection: str, doc_id: str) -> dict:
     return doc.to_dict()
 
 
-def create_json_report(final_report: str) -> dict:
-    """
-    Callback function to create a JSON report from the tool context state.
-    Args:
-        final_report (str): The final markdown report.
-        tool_context (ToolContext): The context for the tool execution.
-    """    
+# def create_json_report(final_report: str) -> dict:
+#     """
+#     Callback function to create a JSON report from the tool context state.
+#     Args:
+#         final_report (str): The final markdown report.
+#         tool_context (ToolContext): The context for the tool execution.
+#     """    
     
-    # class Findings(BaseModel):
-    #     category: str = Field(default=None, description="The category being analyzed")
-    #     problem_discovered: str = Field(description="The snappy problem statement identified related to the criterion in 3-5 words")
-    #     description_of_problem: str = Field(description="A brief explanation of impact the problem on user experience (max about 100 characters)")
-    #     status: str = Field(default=None, description="The status of the category (good, missing, opportunity)")
-    #     reasoning: str = Field(default=None, description="Brief explanation of the analysis")
-    #     score: int = Field(description="The score assigned based on the scoring rubric (0-2)", ge=0, le=2)
+#     # class Findings(BaseModel):
+#     #     category: str = Field(default=None, description="The category being analyzed")
+#     #     problem_discovered: str = Field(description="The snappy problem statement identified related to the criterion in 3-5 words")
+#     #     description_of_problem: str = Field(description="A brief explanation of impact the problem on user experience (max about 100 characters)")
+#     #     status: str = Field(default=None, description="The status of the category (good, missing, opportunity)")
+#     #     reasoning: str = Field(default=None, description="Brief explanation of the analysis")
+#     #     score: int = Field(description="The score assigned based on the scoring rubric (0-2)", ge=0, le=2)
 
-    # class Recommendations(BaseModel):
-    #     recommendation: str = Field(default=None, description="An actionable recommendation based on the analysis")
-    #     priority: str = Field(default=None, description="The priority of the recommendation (high, medium, low)")
-    #     action: str = Field(default=None, description="The action to be taken based on the recommendation")
-    #     impact: str = Field(default=None, description="The expected impact of implementing the recommendation")
+#     # class Recommendations(BaseModel):
+#     #     recommendation: str = Field(default=None, description="An actionable recommendation based on the analysis")
+#     #     priority: str = Field(default=None, description="The priority of the recommendation (high, medium, low)")
+#     #     action: str = Field(default=None, description="The action to be taken based on the recommendation")
+#     #     impact: str = Field(default=None, description="The expected impact of implementing the recommendation")
     
-    # class MediaMetrics(BaseModel):
-    #     media_spend: int = Field(default=None, description="The annual paid media spend")
-    #     media_traffic: int = Field(default=None, description="The annual paid media traffic")
-    #     media_transactions: int = Field(default=None, description="The annual paid media transactions")
-    #     revenue_per_sale: int = Field(default=None, description="The revenue per sale")
-    #     currency: str = Field(default=None, description="The currency as a 3-letter code (e.g. USD, EUR, GBP, etc.)")
-    #     current_cvr: float = Field(default=None, description="The current conversion rate percentage (0-100%)")
-    #     cvr_lift: float = Field(default=None, description="The estimated conversion rate lift percentage (0-100%)")
-    #     projected_cvr: float = Field(default=None, description="The projected conversion rate after improvements percentage (0-100%)")
-    #     revenue_opp: int = Field(default=None, description="The revenue opportunity")
-    #     annual_cost: int = Field(default=None, description="The annual cost of media spend")
-    #     roi_percentage: float = Field(default=None, description="The estimated ROI percentage (0-100%)")
+#     # class MediaMetrics(BaseModel):
+#     #     media_spend: int = Field(default=None, description="The annual paid media spend")
+#     #     media_traffic: int = Field(default=None, description="The annual paid media traffic")
+#     #     media_transactions: int = Field(default=None, description="The annual paid media transactions")
+#     #     revenue_per_sale: int = Field(default=None, description="The revenue per sale")
+#     #     currency: str = Field(default=None, description="The currency as a 3-letter code (e.g. USD, EUR, GBP, etc.)")
+#     #     current_cvr: float = Field(default=None, description="The current conversion rate percentage (0-100%)")
+#     #     cvr_lift: float = Field(default=None, description="The estimated conversion rate lift percentage (0-100%)")
+#     #     projected_cvr: float = Field(default=None, description="The projected conversion rate after improvements percentage (0-100%)")
+#     #     revenue_opp: int = Field(default=None, description="The revenue opportunity")
+#     #     annual_cost: int = Field(default=None, description="The annual cost of media spend")
+#     #     roi_percentage: float = Field(default=None, description="The estimated ROI percentage (0-100%)")
 
-    # class FinalOutput(BaseModel):    
-    #     final_score: int = Field(default=None, description="The overall score of the website based on the audit normalized to 100")
-    #     url: str = Field(default=None, description="The url being analyzed")
-    #     vertical: str = Field(default=None, description="The industry vertical of the url being analyzed")
-    #     clientName: str = Field(default=None, description="The name of the url owner")
-    #     status: str = Field(default=None, description="overall good, bad, opportunity score based on the analysis")
-    #     executive_summary: str = Field(default=None, description="A brief, high-level summary of the overall audit findings")
-    #     media_metrics: MediaMetrics = Field(default=None, description="The media metrics used for ROI estimation")
-    #     findings: list[Findings] = Field(default=None, description="A list of findings for each category analyzed")
-    #     recommendations: list[Recommendations] = Field(default=None, description="Compile a single, consolidated list of actionable recommendations from all sub-reports")
+#     # class FinalOutput(BaseModel):    
+#     #     final_score: int = Field(default=None, description="The overall score of the website based on the audit normalized to 100")
+#     #     url: str = Field(default=None, description="The url being analyzed")
+#     #     vertical: str = Field(default=None, description="The industry vertical of the url being analyzed")
+#     #     clientName: str = Field(default=None, description="The name of the url owner")
+#     #     status: str = Field(default=None, description="overall good, bad, opportunity score based on the analysis")
+#     #     executive_summary: str = Field(default=None, description="A brief, high-level summary of the overall audit findings")
+#     #     media_metrics: MediaMetrics = Field(default=None, description="The media metrics used for ROI estimation")
+#     #     findings: list[Findings] = Field(default=None, description="A list of findings for each category analyzed")
+#     #     recommendations: list[Recommendations] = Field(default=None, description="Compile a single, consolidated list of actionable recommendations from all sub-reports")
     
-    # from typing import Literal, Optional
+#     # from typing import Literal, Optional
 
-    class BestPracticeRating(BaseModel):
-        """One entry per evaluated best practice (Section 1 — full diagnostic)."""
-        best_practice: str = Field(description="The name of the best practice / criterion evaluated")
-        category: str = Field(default=None, description="The category the best practice belongs to")
-        rating: Literal["Poor", "Good", "Excellent"] = Field(description="The rating assigned to the implementation")
-        score: int = Field(description="Numeric score mapped from rating: Poor=0, Good=1, Excellent=2", ge=0, le=2)
-        observation: str = Field(description="One-sentence justification for the rating (max about 150 characters)")
-
-
-    class Findings(BaseModel):
-        """One of the 7 prioritized problems (Section 2)."""
-        problem_discovered: str = Field(description="The snappy problem statement in 3-5 words")
-        description_of_problem: str = Field(description="A brief explanation of the impact on user experience (max about 100 characters)")
-        rating: Literal["Poor", "Good"] = Field(description="The problem rating — only Poor or Good qualify as problems")
-        reference: str = Field(description="The specific best practice used, or 'General Heuristic' if found via supplemental analysis")
-        reasoning: str = Field(default=None, description="Brief explanation of the analysis / observation")
-        recommendation: str = Field(default=None, description="A brief, actionable fix to elevate the implementation to Excellent")
-        score: int = Field(description="Numeric score mapped from rating: Poor=0, Good=1", ge=0, le=1)
+#     class BestPracticeRating(BaseModel):
+#         """One entry per evaluated best practice (Section 1 — full diagnostic)."""
+#         best_practice: str = Field(description="The name of the best practice / criterion evaluated")
+#         category: str = Field(default=None, description="The category the best practice belongs to")
+#         rating: Literal["Poor", "Good", "Excellent"] = Field(description="The rating assigned to the implementation")
+#         score: int = Field(description="Numeric score mapped from rating: Poor=0, Good=1, Excellent=2", ge=0, le=2)
+#         observation: str = Field(description="One-sentence justification for the rating (max about 150 characters)")
 
 
-    class Recommendations(BaseModel):
-        recommendation: str = Field(default=None, description="An actionable recommendation based on the analysis")
-        priority: Literal["high", "medium", "low"] = Field(default=None, description="The priority of the recommendation")
-        action: str = Field(default=None, description="The action to be taken based on the recommendation")
-        impact: str = Field(default=None, description="The expected impact of implementing the recommendation")
+#     class Findings(BaseModel):
+#         """One of the 7 prioritized problems (Section 2)."""
+#         problem_discovered: str = Field(description="The snappy problem statement in 3-5 words")
+#         description_of_problem: str = Field(description="A brief explanation of the impact on user experience (max about 100 characters)")
+#         rating: Literal["Poor", "Good"] = Field(description="The problem rating — only Poor or Good qualify as problems")
+#         reference: str = Field(description="The specific best practice used, or 'General Heuristic' if found via supplemental analysis")
+#         reasoning: str = Field(default=None, description="Brief explanation of the analysis / observation")
+#         recommendation: str = Field(default=None, description="A brief, actionable fix to elevate the implementation to Excellent")
+#         score: int = Field(description="Numeric score mapped from rating: Poor=0, Good=1", ge=0, le=1)
 
-    class MediaMetrics(BaseModel):
-        media_spend: int = Field(default=None, description="The annual paid media spend")
-        media_traffic: int = Field(default=None, description="The annual paid media traffic")
-        media_transactions: int = Field(default=None, description="The annual paid media transactions")
-        revenue_per_sale: int = Field(default=None, description="The revenue per sale")
-        currency: str = Field(default=None, description="The currency as a 3-letter code (e.g. USD, EUR, GBP, etc.)")
-        current_cvr: float = Field(default=None, description="The current conversion rate percentage (0-100%)")
-        cvr_lift: float = Field(default=None, description="The estimated conversion rate lift percentage (0-100%)")
-        projected_cvr: float = Field(default=None, description="The projected conversion rate after improvements percentage (0-100%)")
-        revenue_opp: int = Field(default=None, description="The revenue opportunity")
-        annual_cost: int = Field(default=None, description="The annual cost of media spend")
-        roi_percentage: float = Field(default=None, description="The estimated ROI percentage (0-100%)")
 
-    class FinalOutput(BaseModel):
-        final_score: int = Field(default=None, description="Overall score normalized to 100, computed across ALL best_practice_ratings (sum of scores / max possible * 100)")
-        url: str = Field(default=None, description="The url being analyzed")
-        page_type: str = Field(default=None, description="Type of the page being analyzed")
-        vertical: str = Field(default=None, description="The industry vertical of the url being analyzed")
-        clientName: str = Field(default=None, description="The name of the url owner")
-        status: Literal["good", "bad", "opportunity"] = Field(default=None, description="Overall status based on the analysis")
-        executive_summary: str = Field(default=None, description="A brief, high-level summary of the overall audit findings")
-        best_practice_ratings: list[BestPracticeRating] = Field(default=None, description="Full diagnostic — a rating for every best practice evaluated (Section 1)")
-        findings: list[Findings] = Field(default=None, description="The 7 prioritized problems (Section 2)")
-        recommendations: list[Recommendations] = Field(default=None, description="A single, consolidated list of actionable recommendations from all sub-reports")
-        media_metrics: MediaMetrics = Field(default=None, description="The media metrics used for ROI estimation")
+#     class Recommendations(BaseModel):
+#         recommendation: str = Field(default=None, description="An actionable recommendation based on the analysis")
+#         priority: Literal["high", "medium", "low"] = Field(default=None, description="The priority of the recommendation")
+#         action: str = Field(default=None, description="The action to be taken based on the recommendation")
+#         impact: str = Field(default=None, description="The expected impact of implementing the recommendation")
+
+#     class MediaMetrics(BaseModel):
+#         media_spend: int = Field(default=None, description="The annual paid media spend")
+#         media_traffic: int = Field(default=None, description="The annual paid media traffic")
+#         media_transactions: int = Field(default=None, description="The annual paid media transactions")
+#         revenue_per_sale: int = Field(default=None, description="The revenue per sale")
+#         currency: str = Field(default=None, description="The currency as a 3-letter code (e.g. USD, EUR, GBP, etc.)")
+#         current_cvr: float = Field(default=None, description="The current conversion rate percentage (0-100%)")
+#         cvr_lift: float = Field(default=None, description="The estimated conversion rate lift percentage (0-100%)")
+#         projected_cvr: float = Field(default=None, description="The projected conversion rate after improvements percentage (0-100%)")
+#         revenue_opp: int = Field(default=None, description="The revenue opportunity")
+#         annual_cost: int = Field(default=None, description="The annual cost of media spend")
+#         roi_percentage: float = Field(default=None, description="The estimated ROI percentage (0-100%)")
+
+#     class FinalOutput(BaseModel):
+#         final_score: int = Field(default=None, description="Overall score normalized to 100, computed across ALL best_practice_ratings (sum of scores / max possible * 100)")
+#         url: str = Field(default=None, description="The url being analyzed")
+#         page_type: str = Field(default=None, description="Type of the page being analyzed")
+#         vertical: str = Field(default=None, description="The industry vertical of the url being analyzed")
+#         clientName: str = Field(default=None, description="The name of the url owner")
+#         status: Literal["good", "bad", "opportunity"] = Field(default=None, description="Overall status based on the analysis")
+#         executive_summary: str = Field(default=None, description="A brief, high-level summary of the overall audit findings")
+#         best_practice_ratings: list[BestPracticeRating] = Field(default=None, description="Full diagnostic — a rating for every best practice evaluated (Section 1)")
+#         findings: list[Findings] = Field(default=None, description="The 7 prioritized problems (Section 2)")
+#         recommendations: list[Recommendations] = Field(default=None, description="A single, consolidated list of actionable recommendations from all sub-reports")
+#         media_metrics: MediaMetrics = Field(default=None, description="The media metrics used for ROI estimation")
         
+# #     prompt = f"""
+# # You are asked to convert the following report into a structured JSON format. The report is a comprehensive audit of a client website, and it includes various sections such as executive summary, findings, and recommendations. 
+# # Your task is to extract the relevant information from the report and organize it into a structured JSON format.
+
+# # The report is as follows:
+# # {final_report}
+# # """
 #     prompt = f"""
-# You are asked to convert the following report into a structured JSON format. The report is a comprehensive audit of a client website, and it includes various sections such as executive summary, findings, and recommendations. 
-# Your task is to extract the relevant information from the report and organize it into a structured JSON format.
+# You are converting a UX audit report and guestimate report into structured JSON matching the provided schema. Extract only what is present in the report — do not invent findings, ratings, recommendations or guestimates.
+
+# The audit report has two distinct parts that map to two different fields. Keep them separate:
+
+# 1. "Section 1 — Best Practice Ratings" → `best_practice_ratings`. Create one entry for EVERY best practice listed, including those rated Excellent. For each, capture the best practice name, its category if stated, the rating, and the one-line observation.
+
+# 2. "Section 2 — Top 7 Problems" → `findings`. There should be exactly 7. For each, capture the problem headline (`problem_discovered`), the impact (`description_of_problem`), the rating (Poor or Good only), the `reference` (the named best practice, or "General Heuristic"), the reasoning, and the per-problem recommendation.
+
+# Scoring rules:
+# - Map every rating to a score: Poor = 0, Good = 1, Excellent = 2.
+# - `final_score`: sum the scores across ALL `best_practice_ratings`, divide by the maximum possible (2 × number of ratings), and multiply by 100. Round to the nearest integer.
+# - Derive `status` from `final_score` (or the report's stated overall verdict if given): roughly good / opportunity / bad.
+
+# Also extract `url`, `vertical`, `clientName`, and `executive_summary` if present in the report; leave them null if absent. Compile `recommendations` as a consolidated list from the report's recommendations.
+
+# For the media metrics, use the guestimate report and extract the values from the report.
 
 # The report is as follows:
 # {final_report}
 # """
-    prompt = f"""
-You are converting a UX audit report and guestimate report into structured JSON matching the provided schema. Extract only what is present in the report — do not invent findings, ratings, recommendations or guestimates.
 
-The audit report has two distinct parts that map to two different fields. Keep them separate:
+#     llm_client = Client(vertexai=True, project=GOOGLE_CLOUD_PROJECT, location=GOOGLE_CLOUD_LOCATION)
+#     response = llm_client.models.generate_content(
+#         model=LLM_MODEL, contents=prompt,
+#         config=GenerateContentConfig(
+#             response_mime_type="application/json",
+#             response_schema=FinalOutput
+#         )
+#     )
 
-1. "Section 1 — Best Practice Ratings" → `best_practice_ratings`. Create one entry for EVERY best practice listed, including those rated Excellent. For each, capture the best practice name, its category if stated, the rating, and the one-line observation.
+#     json_output = response.to_json_dict()['parsed']
+#     return json_output
 
-2. "Section 2 — Top 7 Problems" → `findings`. There should be exactly 7. For each, capture the problem headline (`problem_discovered`), the impact (`description_of_problem`), the rating (Poor or Good only), the `reference` (the named best practice, or "General Heuristic"), the reasoning, and the per-problem recommendation.
+# def _get_reports_from_firestore(task_id: str) -> dict:
+#     client = _firestore_client()
+#     if client is None:
+#         return
+#     page_id = int(task_id.split('_')[-1])
+#     doc = client.collection("runs").document(task_id.split('_')[0]).get()
+#     report = {u:doc.to_dict()['audit'].get(u, '') for u in ['vertical', 'company_name']}
+#     report['page'] = doc.to_dict()['audit']['pages'][page_id]
+#     doc = client.collection("roi").document(task_id.split('_')[0]).get()
+#     report['guestimate'] = doc.to_dict().get('content', '')    
 
-Scoring rules:
-- Map every rating to a score: Poor = 0, Good = 1, Excellent = 2.
-- `final_score`: sum the scores across ALL `best_practice_ratings`, divide by the maximum possible (2 × number of ratings), and multiply by 100. Round to the nearest integer.
-- Derive `status` from `final_score` (or the report's stated overall verdict if given): roughly good / opportunity / bad.
+#     doc = client.collection("audits").document(task_id).get()
+#     report['audit'] = doc.to_dict()['result']
 
-Also extract `url`, `vertical`, `clientName`, and `executive_summary` if present in the report; leave them null if absent. Compile `recommendations` as a consolidated list from the report's recommendations.
+#     return report
 
-For the media metrics, use the guestimate report and extract the values from the report.
+# def _save_report_to_firestore(task_id: str, json_report: dict) -> None:
+#     client = _firestore_client()
+#     if client is None:
+#         return
+#     client.collection("reports").document(task_id).set(json_report)
 
-The report is as follows:
-{final_report}
-"""
+# def json_report(task_id: str) -> None:
+#     """
+#     Endpoint to create a JSON report from the final report.
+#     """
 
-    llm_client = Client(vertexai=True, project=GOOGLE_CLOUD_PROJECT, location=GOOGLE_CLOUD_LOCATION)
-    response = llm_client.models.generate_content(
-        model=LLM_MODEL, contents=prompt,
-        config=GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=FinalOutput
-        )
-    )
-
-    json_output = response.to_json_dict()['parsed']
-    return json_output
-
-def _get_reports_from_firestore(task_id: str) -> dict:
-    client = _firestore_client()
-    if client is None:
-        return
-    page_id = int(task_id.split('_')[-1])
-    doc = client.collection("runs").document(task_id.split('_')[0]).get()
-    report = {u:doc.to_dict()['audit'].get(u, '') for u in ['vertical', 'company_name']}
-    report['page'] = doc.to_dict()['audit']['pages'][page_id]
-    doc = client.collection("roi").document(task_id.split('_')[0]).get()
-    report['guestimate'] = doc.to_dict().get('content', '')    
-
-    doc = client.collection("audits").document(task_id).get()
-    report['audit'] = doc.to_dict()['result']
-
-    return report
-
-def _save_report_to_firestore(task_id: str, json_report: dict) -> None:
-    client = _firestore_client()
-    if client is None:
-        return
-    client.collection("reports").document(task_id).set(json_report)
-
-def json_report(task_id: str) -> None:
-    """
-    Endpoint to create a JSON report from the final report.
-    """
-
-    report = _get_reports_from_firestore(task_id)
-    json_report = create_json_report(report)
-    _save_report_to_firestore(task_id, json_report)
+#     report = _get_reports_from_firestore(task_id)
+#     json_report = create_json_report(report)
+#     _save_report_to_firestore(task_id, json_report)
 
 def _save_slides_url_to_firestore(task_id: str, slides_url: str) -> None:
     client = _firestore_client()
@@ -321,9 +321,9 @@ def create_slides(task_ids: list[str]) -> str:
         str: The URL of the created Google Slides presentation.
     """
     
-    logger.info(f"Creating slides for tasks: {task_ids}")
-    for task_id in task_ids:
-        json_report(task_id)
+    # logger.info(f"Creating slides for tasks: {task_ids}")
+    # for task_id in task_ids:
+    #     json_report(task_id)
 
     logger.info(f"Copying file for tasks: {task_ids}")
     try: 
@@ -373,13 +373,20 @@ def copy_audit_slide(task_ids: list[str]) -> dict:
     drive_service = build("drive", "v3", credentials=creds)
     slides_service = build("slides", "v1", credentials=creds)
     
-    doc = _get_json_report_from_firestore(task_ids[0])
-    client = doc.get('clientName')
-    vertical = doc.get('vertical')
+    run_id, page_id = task_ids[0].split('_page_')
+    run_doc = _get_doc_from_firestore("runs", run_id)
+    client = run_doc.get('audit', {}).get('company_name', 'Unknown')
+    vertical = run_doc.get('audit', {}).get('vertical', 'Unknown')
+    
+
+    # doc = _get_json_report_from_firestore(task_ids[0])
+    # client = doc.get('clientName')
+    # vertical = doc.get('vertical')
 
     # check if the client folder exists
-    
-    query = f"mimeType='application/vnd.google-apps.folder' and trashed = false and '{target_folder_id}' in parents and name='{client}'"
+    # Drive API query values must have backslashes and single quotes escaped, e.g. "Victoria's Secret" -> "Victoria\'s Secret"
+    escaped_client = client.replace('\\', '\\\\').replace("'", "\\'")
+    query = f"mimeType='application/vnd.google-apps.folder' and trashed = false and '{target_folder_id}' in parents and name='{escaped_client}'"
     response = drive_service.files().list(
             q=query,
             fields="files(id)",
@@ -470,10 +477,14 @@ def create_slide_for_key(task_id: str, copied_file: dict) -> str:
         str: The URL of the created Google Slides presentation.
     """    
 
-    
-    json_report = _get_json_report_from_firestore(task_id)
-    audit_doc = _get_doc_from_firestore("audits", task_id)
-    eyequant_doc = _get_doc_from_firestore("eyequant", task_id)
+    run_id, page_id = task_id.split('_page_')
+    json_report = _get_json_report_from_firestore(task_id) or {}
+    run_doc = _get_doc_from_firestore("runs", run_id) or {}
+    audit_doc = _get_doc_from_firestore("audits", task_id) or {}
+    eyequant_doc = _get_doc_from_firestore("eyequant", task_id) or {}
+    comp_doc = _get_doc_from_firestore("shots", run_id)
+    comp_doc = comp_doc if comp_doc else {}
+
     screenshot = audit_doc.get('screenshot')
     eyeshot = eyequant_doc.get('eyeshot')
     clarity = eyequant_doc.get('clarity')
@@ -488,22 +499,27 @@ def create_slide_for_key(task_id: str, copied_file: dict) -> str:
             _download_gcs(value, local_path)
         else:
             open(local_path, 'wb').write(base64.b64decode(value))
-    client = json_report.get('clientName')
-    page_type = json_report.get('page_type')
-    vertical = json_report.get('vertical')
-    url = json_report.get('url')
+    
+    
+    client = run_doc.get('audit', {}).get('company_name')
+    pages = run_doc.get('audit', {}).get('pages', [])
+    page = pages[int(page_id)] if int(page_id) < len(pages) else {}
+    url = page.get('url', 'http://example.com')
+    page_type = page.get('page_type', 'Unknown')
+    vertical = run_doc.get('audit', {}).get('vertical', 'Unknown')
     score = json_report.get('final_score')
     findings = json_report.get('findings')
 
-    # screenshot_artifact_file = tool_context.state.get(f'screenshot_{auditor_key}', '')
-    # screenshot_artifact_file = f"screenshot_{task_id}.png"
-    # img_artifact = await tool_context.load_artifact(filename=screenshot_artifact_file)
-    # data = img_artifact.inline_data.data
+    comps = run_doc.get('audit', {}).get('competitors')
+    for comp in comps:
+        url = comp.get('competitor_url')
+        audit = [u.get('audit', {}).get('score') for u in comp_doc.values() if u.get('audit', {}).get('page_url') == url]
+        score = audit[0] if audit else 0
+        comp['competitor_score'] = score
+
     if screenshot is not None: _write_image(screenshot, '/tmp/screenshot.png')
     if eyeshot is not None: _write_image(eyeshot, '/tmp/eyeshot.png')
     if clarity is not None: _write_image(clarity, '/tmp/clarity.png')
-    # image_name = os.path.basename(f'/tmp/{screenshot}')    
-    # mimetype, _ = mimetypes.guess_type(f'/tmp/{screenshot}')
 
     creds = get_creds()
     drive_service = build("drive", "v3", credentials=creds)
@@ -512,7 +528,7 @@ def create_slide_for_key(task_id: str, copied_file: dict) -> str:
 
     client_folder_id = copied_file.get('client_folder_id')
     presentation_id = copied_file.get('id')
-    # %%
+
     presentation = slides_service.presentations().get(presentationId=presentation_id).execute()
     slides = presentation.get("slides")
     # ------------------------------------
@@ -558,6 +574,46 @@ def create_slide_for_key(task_id: str, copied_file: dict) -> str:
                     "matchCase": True
                 },
                 "replaceText": f"{score}%",
+                'pageObjectIds': [f'slide_{task_id}']
+            }        
+        },
+        {
+            "replaceAllText": {
+                "containsText": {
+                    "text": 'Competitor 1',
+                    "matchCase": True
+                },
+                "replaceText": f"{comps[0]['competitor_name']}%",
+                'pageObjectIds': [f'slide_{task_id}']
+            }        
+        },
+        {
+            "replaceAllText": {
+                "containsText": {
+                    "text": 'Y1%',
+                    "matchCase": True
+                },
+                "replaceText": f"{comps[0]['competitor_score']}%",
+                'pageObjectIds': [f'slide_{task_id}']
+            }        
+        },
+        {
+            "replaceAllText": {
+                "containsText": {
+                    "text": 'Competitor 2',
+                    "matchCase": True
+                },
+                "replaceText": f"{comps[1]['competitor_name']}%",
+                'pageObjectIds': [f'slide_{task_id}']
+            }        
+        },
+        {
+            "replaceAllText": {
+                "containsText": {
+                    "text": 'Y2%',
+                    "matchCase": True
+                },
+                "replaceText": f"{comps[1]['competitor_score']}%",
                 'pageObjectIds': [f'slide_{task_id}']
             }        
         },
@@ -687,9 +743,9 @@ def create_slide_for_key(task_id: str, copied_file: dict) -> str:
     
     # insert images into slide
     logger.info(f"Inserting images into slide for task {task_id}")
-    if screenshot is not None: insert_images_into_slide(presentation_id, img_file, task_id, 'screenshot', slides_service)
-    if eyeshot is not None: insert_images_into_slide(presentation_id, eyeshot_file, task_id, 'eyeshot', slides_service)
-    if clarity is not None: insert_images_into_slide(presentation_id, clarity_file, task_id, 'clarity', slides_service)
+    if screenshot is not None: insert_images_into_slide(presentation_id, img_file, task_id, f'screenshot_{page_id}', slides_service)
+    if eyeshot is not None: insert_images_into_slide(presentation_id, eyeshot_file, task_id, f'eyeshot_{page_id}', slides_service)
+    if clarity is not None: insert_images_into_slide(presentation_id, clarity_file, task_id, f'clarity_{page_id}', slides_service)
     # ------------------------------------    
         
     return "success"
@@ -731,7 +787,7 @@ def insert_images_into_slide(presentation_id: str, img_file: Any, task_id: str, 
     """
     # insert image into slide
     page_id = f'slide_{task_id}'
-    object_id = f"MyImage_{task_id}_{file_name}"
+    object_id = f"MyImage_{file_name}"
     image_url = img_file.get('webContentLink')
     requests = [
         {
@@ -760,8 +816,8 @@ def update_roi_slide(presentation_id: str, task_id: str) -> None:
     Update the ROI slide with calculated values.
     """      
 
-    json_report = _get_json_report_from_firestore(task_id)
-    roi_calc = json_report['media_metrics']
+    run_id, page_id = task_id.split('_page_')
+    roi_calc = _get_json_report_from_firestore(run_id)
 
     creds = get_creds()
     slides_service = build("slides", "v1", credentials=creds)

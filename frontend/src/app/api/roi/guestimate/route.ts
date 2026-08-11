@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { fetchGuestimate, validateUrlList } from "@/lib/agent-run";
+import { fetchGuestimateInSession, validateUrlList } from "@/lib/agent-run";
 import { saveRoiDocumentContent } from "@/lib/firestore-runs";
 
-const DEFAULT_GUESTIMATE_AGENT_BASE = "http://127.0.0.1:8002";
+const DEFAULT_AUDITOR_AGENT_BASE = "http://127.0.0.1:8001";
 const DEFAULT_AGENT_USERNAME = "ui-audit-user";
 
 type GuestimateBody = {
@@ -13,9 +13,9 @@ type GuestimateBody = {
   username?: unknown;
 };
 
-function guestimateAgentBaseUrl(): string {
-  const guestimateAgent = process.env.GUESSTIMATE_AGENT;
-  return guestimateAgent?.replace(/\/$/, "") ?? DEFAULT_GUESTIMATE_AGENT_BASE;
+function auditorAgentBaseUrl(): string {
+  const auditorAgent = process.env.AUDITOR_AGENT;
+  return auditorAgent?.replace(/\/$/, "") ?? DEFAULT_AUDITOR_AGENT_BASE;
 }
 
 function parseBody(
@@ -58,16 +58,17 @@ export async function POST(request: Request): Promise<Response> {
         { status: 400 },
       );
     }
-    const guestimate = await fetchGuestimate(
-      guestimateAgentBaseUrl(),
+    const guestimate = await fetchGuestimateInSession(
+      auditorAgentBaseUrl(),
       validated.urls,
       controller.signal,
+      parsed.runId,
       parsed.guestimateText,
       parsed.username,
     );
     if (!guestimate) {
       return NextResponse.json(
-        { error: "Guestimate agent did not return content." },
+        { error: "Auditor agent did not return content." },
         { status: 502 },
       );
     }
@@ -79,7 +80,7 @@ export async function POST(request: Request): Promise<Response> {
     const message =
       error instanceof Error && error.message.trim()
         ? error.message
-        : "Unable to run guestimate agent.";
+        : "Unable to run auditor agent for ROI guestimate.";
     return NextResponse.json({ error: message }, { status });
   } finally {
     clearTimeout(timeout);

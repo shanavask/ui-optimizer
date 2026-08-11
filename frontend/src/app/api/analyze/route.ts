@@ -10,7 +10,6 @@ import { dispatchBrowserUseTasks } from "@/lib/browseruse";
 import { saveAuditRun } from "@/lib/firestore-runs";
 
 const DEFAULT_AGENT_BASE = "http://127.0.0.1:8001";
-const DEFAULT_GUESTIMATE_AGENT_BASE = "http://127.0.0.1:8002";
 export const runtime = "nodejs";
 
 type MaybeError = {
@@ -20,14 +19,13 @@ type MaybeError = {
   details?: unknown;
 };
 
-function agentBaseUrl(): string {
-  const criteriaAgent = process.env.CRITERIA_AGENT;
-  return criteriaAgent?.replace(/\/$/, "") ?? DEFAULT_AGENT_BASE;
+function auditorAgentBaseUrl(): string {
+  const auditorAgent = process.env.AUDITOR_AGENT;
+  return auditorAgent?.replace(/\/$/, "") ?? DEFAULT_AGENT_BASE;
 }
 
 function guestimateAgentBaseUrl(): string {
-  const guestimateAgent = process.env.GUESSTIMATE_AGENT;
-  return guestimateAgent?.replace(/\/$/, "") ?? DEFAULT_GUESTIMATE_AGENT_BASE;
+  return auditorAgentBaseUrl();
 }
 
 function invalidUrlsResponse(error: string, rejectedUrls?: string[]): Response {
@@ -72,7 +70,7 @@ async function runAnalyze(
   if (!validated.ok) {
     return invalidUrlsResponse(validated.error, validated.rejectedUrls);
   }
-  const audit = await fetchUiAudit(agentBaseUrl(), validated.urls, signal, username);
+  const { audit, sessionId } = await fetchUiAudit(auditorAgentBaseUrl(), validated.urls, signal, username);
   if (!audit) {
     return NextResponse.json(
       { error: "Agent did not return a parseable UI audit response." },
@@ -86,14 +84,14 @@ async function runAnalyze(
     ...audit,
     ...(guestimate ? { guestimate } : {}),
   };
-  const savedRunId = saveRun ? await saveAuditRun(auditWithGuestimate, runId) : undefined;
+  const savedRunId = saveRun ? await saveAuditRun(auditWithGuestimate, sessionId) : undefined;
   let nextAudit = auditWithGuestimate;
   if (saveRun) {
     nextAudit = await dispatchBrowserUseTasks(auditWithGuestimate, signal, savedRunId);
   }
   return NextResponse.json({
     audit: nextAudit,
-    ...(savedRunId ? { runId: savedRunId } : {}),
+    runId: savedRunId ?? sessionId,
   });
 }
 

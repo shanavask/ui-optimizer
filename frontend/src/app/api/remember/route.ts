@@ -10,11 +10,12 @@ type RememberBody = {
   pageType?: unknown;
   bestPractices?: unknown;
   username?: unknown;
+  sessionId?: unknown;
 };
 
 function agentBaseUrl(): string {
-  const criteriaAgent = process.env.CRITERIA_AGENT;
-  return criteriaAgent?.replace(/\/$/, "") ?? DEFAULT_AGENT_BASE;
+  const auditorAgent = process.env.AUDITOR_AGENT;
+  return auditorAgent?.replace(/\/$/, "") ?? DEFAULT_AGENT_BASE;
 }
 
 function isBlank(value: string): boolean {
@@ -22,7 +23,7 @@ function isBlank(value: string): boolean {
 }
 
 function parseRememberBody(bodyUnknown: unknown):
-  | { ok: true; vertical: string; pageType: string; bestPractices: string; username?: string }
+  | { ok: true; vertical: string; pageType: string; bestPractices: string; username?: string; sessionId?: string }
   | { ok: false; error: string } {
   if (typeof bodyUnknown !== "object" || bodyUnknown === null) {
     return { ok: false, error: "Request body must be an object." };
@@ -47,13 +48,18 @@ function parseRememberBody(bodyUnknown: unknown):
   if (body.username !== undefined && typeof body.username !== "string") {
     return { ok: false, error: "username must be a string when provided." };
   }
+  if (body.sessionId !== undefined && typeof body.sessionId !== "string") {
+    return { ok: false, error: "sessionId must be a string when provided." };
+  }
   const username = body.username?.trim();
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : undefined;
   return {
     ok: true,
     vertical: body.vertical.trim(),
     pageType: body.pageType.trim(),
     bestPractices: body.bestPractices.trim(),
     ...(username ? { username } : {}),
+    ...(sessionId ? { sessionId } : {}),
   };
 }
 
@@ -73,6 +79,7 @@ export async function POST(request: Request): Promise<Response> {
       parsed.bestPractices,
       controller.signal,
       parsed.username,
+      parsed.sessionId,
     );
     return NextResponse.json({ ok: true });
   } catch (err) {

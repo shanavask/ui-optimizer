@@ -6,7 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { textToBestPractices } from "@/lib/best-practices-text";
-import type { CompetitorArtifact, PageAudit, SlideReport, UIAuditResponse } from "@/types/audit";
+import type { CompetitorArtifact, PageAudit, SlideMediaMetrics, SlideReport, UIAuditResponse } from "@/types/audit";
 
 import { AuditPageCard } from "./AuditPageCard";
 
@@ -16,6 +16,7 @@ type AuditTabsProps = Readonly<{
   audit: UIAuditResponse;
   onChange: (next: UIAuditResponse) => void;
   agentUsername?: string;
+  sessionId?: string;
   loading?: boolean;
   onRunAudit?: () => Promise<void>;
   guestimateContent: string;
@@ -28,12 +29,17 @@ type AuditTabsProps = Readonly<{
   onRedoEyeQuantPage?: (pageIndex: number) => Promise<void>;
   redoingEyeQuantPage?: number | null;
   slidesUrl?: string | null;
+  slidesError?: string | null;
   onCreateSlides?: () => Promise<void>;
   creatingSlides?: boolean;
   slideReports?: (SlideReport | null)[];
+  guestimateMetrics?: SlideMediaMetrics | null;
   onRunCompetitors?: () => Promise<void>;
   runningCompetitors?: boolean;
   competitorArtifacts?: CompetitorArtifact[][];
+  onAuditCompetitors?: () => Promise<void>;
+  auditingCompetitors?: boolean;
+  competitorAuditDone?: boolean;
 }>;;
 
 function replacePage(pages: PageAudit[], index: number, page: PageAudit): PageAudit[] {
@@ -46,6 +52,7 @@ export function AuditTabs({
   audit,
   onChange,
   agentUsername,
+  sessionId,
   loading = false,
   onRunAudit,
   guestimateContent,
@@ -58,12 +65,17 @@ export function AuditTabs({
   onRedoEyeQuantPage,
   redoingEyeQuantPage = null,
   slidesUrl = null,
+  slidesError = null,
   onCreateSlides,
   creatingSlides = false,
   slideReports,
+  guestimateMetrics,
   onRunCompetitors,
   runningCompetitors = false,
   competitorArtifacts = [],
+  onAuditCompetitors,
+  auditingCompetitors = false,
+  competitorAuditDone = false,
 }: AuditTabsProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<Tab>("audit-data");
   const [expandedReports, setExpandedReports] = useState<Set<number>>(new Set());
@@ -169,7 +181,7 @@ export function AuditTabs({
       const response = await fetch("/api/remember", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vertical, pageType, bestPractices, username: agentUsername }),
+        body: JSON.stringify({ vertical, pageType, bestPractices, username: agentUsername, sessionId }),
       });
       const data: unknown = await response.json();
       if (!response.ok) {
@@ -181,7 +193,7 @@ export function AuditTabs({
         throw new Error(detail);
       }
     },
-    [agentUsername],
+    [agentUsername, sessionId],
   );
 
   const allCompetitorsComplete =
@@ -387,6 +399,16 @@ export function AuditTabs({
                   disabled={runningCompetitors}
                 >
                   {runningCompetitors ? "Running..." : "Run Competitors"}
+                </button>
+              )}
+              {onAuditCompetitors && allCompetitorsComplete && !competitorAuditDone && (
+                <button
+                  type="button"
+                  className="audit-run-button"
+                  onClick={() => void onAuditCompetitors()}
+                  disabled={auditingCompetitors}
+                >
+                  {auditingCompetitors ? "Auditing..." : "Audit Competitors"}
                 </button>
               )}
             </div>
@@ -612,7 +634,7 @@ export function AuditTabs({
                   type="button"
                   className="audit-run-button"
                   onClick={() => void onCreateSlides()}
-                  disabled={!canCreateSlides || creatingSlides || missingEyeshot}
+                  disabled={!canCreateSlides || creatingSlides}
                 >
                   {creatingSlides ? "Creating..." : "Create Slides"}
                 </button>
@@ -625,14 +647,55 @@ export function AuditTabs({
                   Open presentation
                 </a>
               </p>
+            ) : slidesError ? (
+              <p className="slides-error-banner" role="alert">
+                {slidesError}
+              </p>
             ) : (
               <p className="audit-tab-notice">
                 {!canCreateSlides
                   ? "Complete the audit on all pages first."
                   : missingEyeshot
-                  ? "Run EyeQuant first to generate heatmaps."
+                  ? "EyeQuant heatmaps not available — slides will use default screenshots."
                   : "Click 'Create Slides' to generate the presentation."}
               </p>
+            )}
+            {guestimateMetrics && (
+              <div className="slides-report-card slides-guestimate-card">
+                <h3 className="slides-report-page-title">Media Metrics</h3>
+                <div className="slides-metrics-grid">
+                  {guestimateMetrics.currency && (
+                    <div className="slides-metric-item">
+                      <span className="slides-metric-label">Currency</span>
+                      <span className="slides-metric-value">{guestimateMetrics.currency}</span>
+                    </div>
+                  )}
+                  {guestimateMetrics.media_spend != null && (
+                    <div className="slides-metric-item">
+                      <span className="slides-metric-label">Media Spend</span>
+                      <span className="slides-metric-value">{guestimateMetrics.currency ?? ""} {guestimateMetrics.media_spend.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {guestimateMetrics.media_traffic != null && (
+                    <div className="slides-metric-item">
+                      <span className="slides-metric-label">Media Traffic</span>
+                      <span className="slides-metric-value">{guestimateMetrics.media_traffic.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {guestimateMetrics.media_transactions != null && (
+                    <div className="slides-metric-item">
+                      <span className="slides-metric-label">Media Transactions</span>
+                      <span className="slides-metric-value">{guestimateMetrics.media_transactions.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {guestimateMetrics.revenue_per_sale != null && (
+                    <div className="slides-metric-item">
+                      <span className="slides-metric-label">Revenue per Sale</span>
+                      <span className="slides-metric-value">{guestimateMetrics.currency ?? ""} {guestimateMetrics.revenue_per_sale.toLocaleString()}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
             {slideReports && slideReports.some(Boolean) && (
               <div className="slides-reports">
@@ -656,8 +719,8 @@ export function AuditTabs({
                             <span className={statusClass}>{report.status}</span>
                           )}
                         </div>
-                        {report.url && (
-                          <p className="slides-report-url">{report.url}</p>
+                        {(report.url ?? page?.url) && (
+                          <p className="slides-report-url">{report.url ?? page?.url}</p>
                         )}
                       </div>
 
@@ -721,53 +784,6 @@ export function AuditTabs({
                         </div>
                       )}
 
-                      {report.media_metrics && (
-                        <div className="slides-section">
-                          <h4 className="slides-section-title">Media Metrics</h4>
-                          <div className="slides-metrics-grid">
-                            {report.media_metrics.currency && report.media_metrics.media_spend != null && (
-                              <div className="slides-metric-item">
-                                <span className="slides-metric-label">Media Spend</span>
-                                <span className="slides-metric-value">
-                                  {report.media_metrics.currency} {report.media_metrics.media_spend.toLocaleString()}
-                                </span>
-                              </div>
-                            )}
-                            {report.media_metrics.current_cvr != null && (
-                              <div className="slides-metric-item">
-                                <span className="slides-metric-label">Current CVR</span>
-                                <span className="slides-metric-value">{report.media_metrics.current_cvr}%</span>
-                              </div>
-                            )}
-                            {report.media_metrics.projected_cvr != null && (
-                              <div className="slides-metric-item">
-                                <span className="slides-metric-label">Projected CVR</span>
-                                <span className="slides-metric-value">{report.media_metrics.projected_cvr}%</span>
-                              </div>
-                            )}
-                            {report.media_metrics.cvr_lift != null && (
-                              <div className="slides-metric-item">
-                                <span className="slides-metric-label">CVR Lift</span>
-                                <span className="slides-metric-value">+{report.media_metrics.cvr_lift}%</span>
-                              </div>
-                            )}
-                            {report.media_metrics.revenue_opp != null && (
-                              <div className="slides-metric-item">
-                                <span className="slides-metric-label">Revenue Opportunity</span>
-                                <span className="slides-metric-value">
-                                  {report.media_metrics.currency ?? ""} {report.media_metrics.revenue_opp.toLocaleString()}
-                                </span>
-                              </div>
-                            )}
-                            {report.media_metrics.roi_percentage != null && (
-                              <div className="slides-metric-item">
-                                <span className="slides-metric-label">ROI</span>
-                                <span className="slides-metric-value">{report.media_metrics.roi_percentage}%</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   );
                 })}

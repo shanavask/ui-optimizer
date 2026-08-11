@@ -280,7 +280,11 @@ async function runVertexStreamQuery(
   base: string,
   input: Record<string, string>,
   signal: AbortSignal,
+  imageBase64?: string,
 ): Promise<unknown> {
+  const body = imageBase64
+    ? { class_method: "async_stream_query", input: { ...input, image_base64: imageBase64 } }
+    : { class_method: "async_stream_query", input };
   const response = await fetch(streamQueryUrl(base), {
     method: "POST",
     headers: {
@@ -288,7 +292,7 @@ async function runVertexStreamQuery(
       Accept: "application/json, text/event-stream",
       ...(await authHeaders(base)),
     },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!response.ok) {
@@ -308,16 +312,16 @@ async function runVertexStreamQuery(
 
 function buildUserPrompt(urls: string[]): string {
   const list = urls.map((u) => `- ${u}`).join("\n");
-  return list;
+  return `generate best practices for \n${list}`;
 }
 
 function buildGuestimatePrompt(urls: string[], guestimateContext?: string): string {
   const list = urls.map((u) => `- ${u}`).join("\n");
   const context = guestimateContext?.trim();
   if (!context) {
-    return `Estimate paid media performance for this domain:\n${list}`;
+    return `guestimate media metrics for:\n${list}`;
   }
-  return `Estimate paid media performance for this domain:\n${context}`;
+  return `guestimate media metrics for:\n${context}`;
 }
 
 export function parseUrlsFromBody(
@@ -418,7 +422,7 @@ export async function fetchUiAudit(
   urls: string[],
   signal: AbortSignal,
   username?: string,
-): Promise<UIAuditResponse | null> {
+): Promise<{ audit: UIAuditResponse | null; sessionId: string }> {
   const resolvedBase = normalizeBase(base);
   const userId = username?.trim() || crypto.randomUUID();
   const session = await createAgentSession(resolvedBase, userId, signal);
@@ -435,12 +439,12 @@ export async function fetchUiAudit(
     );
     const parsed = parseAuditFromPayload(payload);
     if (parsed) {
-      return parsed;
+      return { audit: parsed, sessionId: session.id };
     }
-    return parseAuditFromAgentEvents(extractEvents(payload));
+    return { audit: parseAuditFromAgentEvents(extractEvents(payload)), sessionId: session.id };
   }
   const events = await postJson<RunEventsResponse>(`${resolvedBase}/run`, body, signal);
-  return parseAuditFromAgentEvents(events);
+  return { audit: parseAuditFromAgentEvents(events), sessionId: session.id };
 }
 
 export async function sendAgentPrompt(
@@ -497,12 +501,88 @@ export async function fetchGuestimate(
   return text?.trim() ? text : null;
 }
 
+export async function fetchGuestimateInSession(
+  base: string,
+  urls: string[],
+  signal: AbortSignal,
+  sessionId: string,
+  guestimateContext?: string,
+  username?: string,
+): Promise<string | null> {
+  const resolvedBase = normalizeBase(base);
+  const userId = username?.trim() || crypto.randomUUID();
+  const prompt = buildGuestimatePrompt(urls, guestimateContext);
+  const body = runRequestBody(userId, sessionId, prompt);
+  if (isVertexReasoningEngineBase(resolvedBase)) {
+    const payload = await runVertexStreamQuery(
+      resolvedBase,
+      { user_id: userId, session_id: sessionId, message: prompt },
+      signal,
+    );
+    return parseTextFromPayload(payload);
+  }
+  const events = await postJson<RunEventsResponse>(`${resolvedBase}/run`, body, signal);
+  const text = parseTextFromAgentEvents(events);
+  return text?.trim() ? text : null;
+}
+
 export function buildRememberPrompt(
   vertical: string,
   pageType: string,
   bestPractices: string,
 ): string {
   return `Remember this:\nVertical: ${vertical}\nPage Type: ${pageType}\nBest Practices: ${bestPractices}`;
+}
+
+export async function sendPromptInSession(
+  base: string,
+  sessionId: string,
+  prompt: string,
+  signal: AbortSignal,
+  username?: string,
+): Promise<void> {
+  const resolvedBase = normalizeBase(base);
+  const userId = username?.trim() || crypto.randomUUID();
+  const body = runRequestBody(userId, sessionId, prompt);
+  if (isVertexReasoningEngineBase(resolvedBase)) {
+    await runVertexStreamQuery(resolvedBase, { user_id: userId, session_id: sessionId, message: prompt }, signal);
+    return;
+  }
+  await postJson<RunEventsResponse>(`${resolvedBase}/run`, body, signal);
+}
+
+export async function sendPromptInSessionWithImage(
+  base: string,
+  sessionId: string,
+  prompt: string,
+  imageBase64: string,
+  signal: AbortSignal,
+  username?: string,
+): Promise<void> {
+  const resolvedBase = normalizeBase(base);
+  const userId = username?.trim() || crypto.randomUUID();
+  const body = {
+    app_name: APP_NAME,
+    user_id: userId,
+    session_id: sessionId,
+    new_message: {
+      role: "user",
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: "image/png", data: imageBase64 } },
+      ],
+    },
+  };
+  if (isVertexReasoningEngineBase(resolvedBase)) {
+    await runVertexStreamQuery(
+      resolvedBase,
+      { user_id: userId, session_id: sessionId, message: prompt },
+      signal,
+      imageBase64,
+    );
+    return;
+  }
+  await postJson<RunEventsResponse>(`${resolvedBase}/run`, body, signal);
 }
 
 export async function fetchRememberThis(
@@ -512,7 +592,19 @@ export async function fetchRememberThis(
   bestPractices: string,
   signal: AbortSignal,
   username?: string,
+  sessionId?: string,
 ): Promise<void> {
   const prompt = buildRememberPrompt(vertical, pageType, bestPractices);
-  await sendAgentPrompt(base, prompt, signal, username);
+  if (!sessionId) {
+    await sendAgentPrompt(base, prompt, signal, username);
+    return;
+  }
+  const resolvedBase = normalizeBase(base);
+  const userId = username?.trim() || crypto.randomUUID();
+  const body = runRequestBody(userId, sessionId, prompt);
+  if (isVertexReasoningEngineBase(resolvedBase)) {
+    await runVertexStreamQuery(resolvedBase, { user_id: userId, session_id: sessionId, message: prompt }, signal);
+    return;
+  }
+  await postJson<RunEventsResponse>(`${resolvedBase}/run`, body, signal);
 }
