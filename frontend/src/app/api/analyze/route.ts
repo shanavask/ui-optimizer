@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  auditorAgentBaseUrl,
   fetchGuestimate,
   fetchUiAudit,
   parseUrlsFromBody,
@@ -9,7 +10,6 @@ import {
 import { dispatchBrowserUseTasks } from "@/lib/browseruse";
 import { saveAuditRun } from "@/lib/firestore-runs";
 
-const DEFAULT_AGENT_BASE = "http://127.0.0.1:8001";
 export const runtime = "nodejs";
 
 type MaybeError = {
@@ -18,15 +18,6 @@ type MaybeError = {
   code?: unknown;
   details?: unknown;
 };
-
-function auditorAgentBaseUrl(): string {
-  const auditorAgent = process.env.AUDITOR_AGENT;
-  return auditorAgent?.replace(/\/$/, "") ?? DEFAULT_AGENT_BASE;
-}
-
-function guestimateAgentBaseUrl(): string {
-  return auditorAgentBaseUrl();
-}
 
 function invalidUrlsResponse(error: string, rejectedUrls?: string[]): Response {
   return NextResponse.json(
@@ -78,7 +69,7 @@ async function runAnalyze(
     );
   }
   const guestimate = saveRun
-    ? await fetchGuestimate(guestimateAgentBaseUrl(), validated.urls, signal, undefined, username)
+    ? await fetchGuestimate(auditorAgentBaseUrl(), validated.urls, signal, undefined, username)
     : undefined;
   const auditWithGuestimate = {
     ...audit,

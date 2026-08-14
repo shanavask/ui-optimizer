@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { fetchGuestimateInSession, validateUrlList } from "@/lib/agent-run";
-import { saveRoiDocumentContent } from "@/lib/firestore-runs";
-
-const DEFAULT_AUDITOR_AGENT_BASE = "http://127.0.0.1:8001";
-const DEFAULT_AGENT_USERNAME = "ui-audit-user";
+import { DEFAULT_AGENT_USERNAME, validateUrlList } from "@/lib/agent-run";
+import { runGuestimateStep } from "@/lib/pipeline-actions";
 
 type GuestimateBody = {
   runId?: unknown;
@@ -12,11 +9,6 @@ type GuestimateBody = {
   guestimateText?: unknown;
   username?: unknown;
 };
-
-function auditorAgentBaseUrl(): string {
-  const auditorAgent = process.env.AUDITOR_AGENT;
-  return auditorAgent?.replace(/\/$/, "") ?? DEFAULT_AUDITOR_AGENT_BASE;
-}
 
 function parseBody(
   bodyUnknown: unknown,
@@ -58,21 +50,13 @@ export async function POST(request: Request): Promise<Response> {
         { status: 400 },
       );
     }
-    const guestimate = await fetchGuestimateInSession(
-      auditorAgentBaseUrl(),
+    const guestimate = await runGuestimateStep(
+      parsed.runId,
       validated.urls,
       controller.signal,
-      parsed.runId,
       parsed.guestimateText,
       parsed.username,
     );
-    if (!guestimate) {
-      return NextResponse.json(
-        { error: "Auditor agent did not return content." },
-        { status: 502 },
-      );
-    }
-    await saveRoiDocumentContent(parsed.runId, guestimate);
     return NextResponse.json({ content: guestimate });
   } catch (error: unknown) {
     console.error("Guestimate ROI API failed", error);

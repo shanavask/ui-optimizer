@@ -376,6 +376,51 @@ body {
   cursor: not-allowed;
 }
 
+.pipeline-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.pipeline-steps-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pipeline-step-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 0.375rem;
+  padding: 0.15rem 0.55rem;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.15);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.pipeline-step-pill-running {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.pipeline-step-pill-completed,
+.pipeline-step-pill-skipped {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.pipeline-step-pill-failed {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
 .audit-pages {
   display: grid;
   gap: 1rem;

@@ -40,6 +40,7 @@ type AuditTabsProps = Readonly<{
   onAuditCompetitors?: () => Promise<void>;
   auditingCompetitors?: boolean;
   competitorAuditDone?: boolean;
+  pipelineActive?: boolean;
 }>;;
 
 function replacePage(pages: PageAudit[], index: number, page: PageAudit): PageAudit[] {
@@ -76,6 +77,7 @@ export function AuditTabs({
   onAuditCompetitors,
   auditingCompetitors = false,
   competitorAuditDone = false,
+  pipelineActive = false,
 }: AuditTabsProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<Tab>("audit-data");
   const [expandedReports, setExpandedReports] = useState<Set<number>>(new Set());
@@ -253,7 +255,7 @@ export function AuditTabs({
                   type="button"
                   className="audit-run-button"
                   onClick={() => void onRunAudit()}
-                  disabled={loading}
+                  disabled={loading || pipelineActive}
                 >
                   {loading ? "Running..." : "Run Audit"}
                 </button>
@@ -396,7 +398,7 @@ export function AuditTabs({
                   type="button"
                   className="audit-run-button"
                   onClick={() => void onRunCompetitors()}
-                  disabled={runningCompetitors}
+                  disabled={runningCompetitors || pipelineActive}
                 >
                   {runningCompetitors ? "Running..." : "Run Competitors"}
                 </button>
@@ -406,7 +408,7 @@ export function AuditTabs({
                   type="button"
                   className="audit-run-button"
                   onClick={() => void onAuditCompetitors()}
-                  disabled={auditingCompetitors}
+                  disabled={auditingCompetitors || pipelineActive}
                 >
                   {auditingCompetitors ? "Auditing..." : "Audit Competitors"}
                 </button>
@@ -476,7 +478,7 @@ export function AuditTabs({
                     type="button"
                     className="audit-run-button"
                     onClick={() => void handleSaveGuestimate()}
-                    disabled={savingGuestimate}
+                    disabled={savingGuestimate || pipelineActive}
                   >
                     {savingGuestimate ? "Saving..." : "Save"}
                   </button>
@@ -486,7 +488,7 @@ export function AuditTabs({
                     type="button"
                     className="audit-run-button"
                     onClick={() => void onGuestimateRoi()}
-                    disabled={guestimatingRoi}
+                    disabled={guestimatingRoi || pipelineActive}
                   >
                     {guestimatingRoi ? "Guestimating..." : "Guestimate ROI"}
                   </button>
@@ -514,7 +516,7 @@ export function AuditTabs({
                   type="button"
                   className="audit-run-button"
                   onClick={() => void onRunEyeQuant()}
-                  disabled={runningEyeQuant}
+                  disabled={runningEyeQuant || pipelineActive}
                 >
                   {runningEyeQuant ? "Running EyeQuant..." : "Run EyeQuant"}
                 </button>
@@ -560,7 +562,7 @@ export function AuditTabs({
                           type="button"
                           className="audit-redo-button"
                           onClick={() => void handleRedoPage(pageIndex)}
-                          disabled={redoingEyeQuantPage !== null || runningEyeQuant}
+                          disabled={redoingEyeQuantPage !== null || runningEyeQuant || pipelineActive}
                         >
                           {redoingEyeQuantPage === pageIndex ? "Redoing..." : "Redo"}
                         </button>
@@ -634,7 +636,7 @@ export function AuditTabs({
                   type="button"
                   className="audit-run-button"
                   onClick={() => void onCreateSlides()}
-                  disabled={!canCreateSlides || creatingSlides}
+                  disabled={!canCreateSlides || creatingSlides || pipelineActive}
                 >
                   {creatingSlides ? "Creating..." : "Create Slides"}
                 </button>

@@ -5,6 +5,13 @@ import { Firestore, Timestamp } from "@google-cloud/firestore";
 
 import type { Competitor, CompetitorArtifact, SlideMediaMetrics, SlideReport, SlideFinding, SlideRecommendation, UIAuditResponse } from "@/types/audit";
 import { taskIdForCompetitor } from "@/lib/task-ids";
+import {
+  PIPELINE_STEP_ORDER,
+  type PipelineDoc,
+  type PipelineStepId,
+  type PipelineStepRecord,
+  type PipelineStepStatus,
+} from "@/lib/pipeline-steps";
 
 const RUNS_COLLECTION = "runs";
 const ROI_COLLECTION = "roi";
@@ -12,6 +19,8 @@ const AUDITS_COLLECTION = "audits";
 const EYEQUANT_COLLECTION = "eyequant";
 const REPORTS_COLLECTION = "reports";
 const SHOTS_COLLECTION = "shots";
+const SLIDES_COLLECTION = "slides";
+const PIPELINES_COLLECTION = "pipelines";
 const DEFAULT_RUNS_LIMIT = 10;
 
 let firestoreClient: Firestore | null = null;
@@ -676,4 +685,154 @@ export async function shotsDocumentExists(runId: string): Promise<boolean> {
   if (!runId.trim()) return false;
   const snapshot = await getFirestoreClient().collection(SHOTS_COLLECTION).doc(runId).get();
   return snapshot.exists;
+}
+
+export async function getSlidesUrl(runId: string): Promise<string | null> {
+  const snapshot = await getFirestoreClient().collection(SLIDES_COLLECTION).doc(runId).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+  const data = snapshot.data() as { slides_url?: unknown } | undefined;
+  const slidesUrl = typeof data?.slides_url === "string" ? data.slides_url.trim() : "";
+  return slidesUrl || null;
+}
+
+type FirestorePipelineStepRecord = {
+  status?: PipelineStepStatus;
+  startedAt?: Timestamp;
+  completedAt?: Timestamp;
+  error?: string;
+};
+
+type FirestorePipelineDoc = {
+  currentStepIndex?: number;
+  status?: PipelineDoc["status"];
+  steps?: Partial<Record<PipelineStepId, FirestorePipelineStepRecord>>;
+  error?: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+};
+
+function toPipelineDoc(runId: string, data: FirestorePipelineDoc): PipelineDoc {
+  const steps = {} as Record<PipelineStepId, PipelineStepRecord>;
+  for (const step of PIPELINE_STEP_ORDER) {
+    const record = data.steps?.[step];
+    steps[step] = {
+      status: record?.status ?? "pending",
+      ...(record?.startedAt ? { startedAt: record.startedAt.toDate().toISOString() } : {}),
+      ...(record?.completedAt ? { completedAt: record.completedAt.toDate().toISOString() } : {}),
+      ...(record?.error ? { error: record.error } : {}),
+    };
+  }
+  const createdAt = data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(0);
+  const updatedAt = data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : createdAt;
+  return {
+    runId,
+    currentStepIndex: data.currentStepIndex ?? 0,
+    status: data.status ?? "running",
+    steps,
+    ...(data.error ? { error: data.error } : {}),
+    createdAtIso: createdAt.toISOString(),
+    updatedAtIso: updatedAt.toISOString(),
+  };
+}
+
+export async function getPipelineDoc(runId: string): Promise<PipelineDoc | null> {
+  const snapshot = await getFirestoreClient().collection(PIPELINES_COLLECTION).doc(runId).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+  return toPipelineDoc(runId, snapshot.data() as FirestorePipelineDoc);
+}
+
+export async function createOrResetPipelineDoc(runId: string): Promise<PipelineDoc> {
+  const now = Timestamp.now();
+  const steps = {} as Record<PipelineStepId, FirestorePipelineStepRecord>;
+  for (const step of PIPELINE_STEP_ORDER) {
+    steps[step] = { status: "pending" };
+  }
+  const doc: FirestorePipelineDoc = {
+    currentStepIndex: 0,
+    status: "running",
+    steps,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await getFirestoreClient().collection(PIPELINES_COLLECTION).doc(runId).set(doc);
+  return toPipelineDoc(runId, doc);
+}
+
+// Transaction-guarded: flips a step from "pending" to "running" only if no
+// other tick has already claimed it, preventing a double-trigger race when
+// Cloud Tasks redelivers or two ticks land concurrently.
+export async function beginPipelineStep(runId: string, step: PipelineStepId): Promise<boolean> {
+  const firestore = getFirestoreClient();
+  const ref = firestore.collection(PIPELINES_COLLECTION).doc(runId);
+  return firestore.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) {
+      return false;
+    }
+    const data = snapshot.data() as FirestorePipelineDoc;
+    if ((data.steps?.[step]?.status ?? "pending") !== "pending") {
+      return false;
+    }
+    tx.update(ref, {
+      [`steps.${step}.status`]: "running",
+      [`steps.${step}.startedAt`]: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    return true;
+  });
+}
+
+export async function markPipelineStepCompleted(runId: string, step: PipelineStepId): Promise<void> {
+  await getFirestoreClient().collection(PIPELINES_COLLECTION).doc(runId).update({
+    [`steps.${step}.status`]: "completed",
+    [`steps.${step}.completedAt`]: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  });
+}
+
+export async function markPipelineStepsSkipped(runId: string, steps: PipelineStepId[]): Promise<void> {
+  if (steps.length === 0) {
+    return;
+  }
+  const now = Timestamp.now();
+  const update: Record<string, unknown> = { updatedAt: now };
+  for (const step of steps) {
+    update[`steps.${step}.status`] = "skipped";
+    update[`steps.${step}.completedAt`] = now;
+  }
+  await getFirestoreClient().collection(PIPELINES_COLLECTION).doc(runId).update(update);
+}
+
+export async function advancePipelineToStep(runId: string, nextIndex: number): Promise<void> {
+  await getFirestoreClient().collection(PIPELINES_COLLECTION).doc(runId).update({
+    currentStepIndex: nextIndex,
+    updatedAt: Timestamp.now(),
+  });
+}
+
+export async function markPipelineFailed(
+  runId: string,
+  step: PipelineStepId,
+  errorMessage: string,
+): Promise<void> {
+  const now = Timestamp.now();
+  await getFirestoreClient().collection(PIPELINES_COLLECTION).doc(runId).update({
+    status: "failed",
+    error: errorMessage,
+    [`steps.${step}.status`]: "failed",
+    [`steps.${step}.error`]: errorMessage,
+    [`steps.${step}.completedAt`]: now,
+    updatedAt: now,
+  });
+}
+
+export async function markPipelineCompleted(runId: string): Promise<void> {
+  await getFirestoreClient().collection(PIPELINES_COLLECTION).doc(runId).update({
+    status: "completed",
+    updatedAt: Timestamp.now(),
+  });
 }

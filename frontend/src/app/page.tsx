@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AuditResultEditor } from "@/app/components/AuditResultEditor";
 import { AuditTabs } from "@/app/components/AuditTabs";
+import { DISPLAY_STEP_LABEL, PIPELINE_STEP_ORDER, type PipelineDoc, type PipelineStepStatus } from "@/lib/pipeline-steps";
 import { taskIdForPage } from "@/lib/task-ids";
 import type { CompetitorArtifact, SlideMediaMetrics, SlideReport, UIAuditResponse } from "@/types/audit";
 
@@ -212,6 +213,80 @@ async function getCompetitorArtifacts(runId: string): Promise<CompetitorArtifact
   return Array.isArray(ok.artifacts) ? ok.artifacts : [];
 }
 
+async function getPipelineStatus(runId: string): Promise<PipelineDoc | null> {
+  const response = await fetch(`/api/pipeline/status?runId=${encodeURIComponent(runId)}`);
+  const data: unknown = await response.json();
+  if (!response.ok) {
+    return null;
+  }
+  const ok = data as { pipeline: PipelineDoc | null };
+  return ok.pipeline ?? null;
+}
+
+async function postStartPipeline(runId: string): Promise<PipelineDoc> {
+  const response = await fetch("/api/pipeline/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runId }),
+  });
+  const data: unknown = await response.json();
+  if (!response.ok) {
+    const err = data as ErrorBody;
+    const detail =
+      typeof err.error === "string" ? err.error : `HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+  const ok = data as { pipeline: PipelineDoc };
+  return ok.pipeline;
+}
+
+type RunSnapshot = {
+  audit: UIAuditResponse;
+  slidesUrl: string | null;
+  slideReports: (SlideReport | null)[];
+  guestimateMetrics: SlideMediaMetrics | null;
+  competitorArtifacts: CompetitorArtifact[][];
+  competitorAuditDone: boolean;
+};
+
+async function fetchRunSnapshot(runId: string): Promise<RunSnapshot> {
+  const [audit, slidesUrl, slideData, compArtifacts, auditStatusRes] = await Promise.all([
+    getRunAudit(runId),
+    getSlidesUrl(runId),
+    getSlideReports(runId),
+    getCompetitorArtifacts(runId),
+    fetch(`/api/competitors/audit?runId=${encodeURIComponent(runId)}`).then((r) => r.json() as Promise<{ exists?: boolean }>),
+  ]);
+  return {
+    audit,
+    slidesUrl,
+    slideReports: slideData.reports,
+    guestimateMetrics: slideData.guestimateMetrics,
+    competitorArtifacts: compArtifacts,
+    competitorAuditDone: auditStatusRes.exists === true,
+  };
+}
+
+const DISPLAY_STEP_ORDER = ["Criteria", "Audit", "Guestimate", "Competitors", "EyeQuant", "Slides"];
+const DISPLAY_STATUS_RANK: Record<PipelineStepStatus, number> = {
+  failed: 4,
+  running: 3,
+  pending: 2,
+  completed: 1,
+  skipped: 1,
+};
+
+function pipelineDisplaySteps(pipeline: PipelineDoc): { label: string; status: PipelineStepStatus }[] {
+  const collapsed = new Map<string, PipelineStepStatus>();
+  for (const step of PIPELINE_STEP_ORDER) {
+    const label = DISPLAY_STEP_LABEL[step];
+    const next = pipeline.steps[step]?.status ?? "pending";
+    const current = collapsed.get(label);
+    collapsed.set(label, !current || DISPLAY_STATUS_RANK[next] > DISPLAY_STATUS_RANK[current] ? next : current);
+  }
+  return DISPLAY_STEP_ORDER.map((label) => ({ label, status: collapsed.get(label) ?? "pending" }));
+}
+
 async function deleteRun(runId: string): Promise<void> {
   const response = await fetch(`/api/runs/${encodeURIComponent(runId)}`, {
     method: "DELETE",
@@ -268,6 +343,8 @@ export default function HomePage(): React.JSX.Element {
   const [competitorArtifacts, setCompetitorArtifacts] = useState<CompetitorArtifact[][]>([]);
   const [guestimateContent, setGuestimateContent] = useState<string>("");
   const [hasRoiDocument, setHasRoiDocument] = useState<boolean>(false);
+  const [pipeline, setPipeline] = useState<PipelineDoc | null>(null);
+  const [startingPipeline, setStartingPipeline] = useState(false);
 
   const fetchRuns = useCallback(async (cursor?: string): Promise<RunsResponse> => {
     const url = cursor ? `/api/runs?cursor=${encodeURIComponent(cursor)}` : "/api/runs";
@@ -397,20 +474,18 @@ export default function HomePage(): React.JSX.Element {
     setSlidesError(null);
     setRunDetailLoadingId(runId);
     try {
-      const [nextAudit, existingSlidesUrl, slideData, compArtifacts, auditStatusRes] = await Promise.all([
-        getRunAudit(runId),
-        getSlidesUrl(runId),
-        getSlideReports(runId),
-        getCompetitorArtifacts(runId),
-        fetch(`/api/competitors/audit?runId=${encodeURIComponent(runId)}`).then((r) => r.json() as Promise<{ exists?: boolean }>),
+      const [snapshot, pipelineStatus] = await Promise.all([
+        fetchRunSnapshot(runId),
+        getPipelineStatus(runId),
       ]);
-      setAudit(nextAudit);
+      setAudit(snapshot.audit);
       setSelectedRunId(runId);
-      setSlidesUrl(existingSlidesUrl);
-      setSlideReports(slideData.reports);
-      setGuestimateMetrics(slideData.guestimateMetrics);
-      setCompetitorArtifacts(compArtifacts);
-      setCompetitorAuditDone(auditStatusRes.exists === true);
+      setSlidesUrl(snapshot.slidesUrl);
+      setSlideReports(snapshot.slideReports);
+      setGuestimateMetrics(snapshot.guestimateMetrics);
+      setCompetitorArtifacts(snapshot.competitorArtifacts);
+      setCompetitorAuditDone(snapshot.competitorAuditDone);
+      setPipeline(pipelineStatus);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load run");
     } finally {
@@ -436,6 +511,7 @@ export default function HomePage(): React.JSX.Element {
           setCompetitorAuditDone(false);
           setGuestimateContent("");
           setHasRoiDocument(false);
+          setPipeline(null);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to delete run";
@@ -446,6 +522,64 @@ export default function HomePage(): React.JSX.Element {
     },
     [selectedRunId],
   );
+
+  const onRunPipeline = useCallback(async () => {
+    if (!selectedRunId) return;
+    setError(null);
+    setStartingPipeline(true);
+    try {
+      const started = await postStartPipeline(selectedRunId);
+      setPipeline(started);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start pipeline");
+    } finally {
+      setStartingPipeline(false);
+    }
+  }, [selectedRunId]);
+
+  const isPipelineRunning = pipeline?.status === "running";
+  const pipelineSnapshotRef = useRef<{ currentStepIndex: number; status: PipelineDoc["status"] } | null>(null);
+  useEffect(() => {
+    pipelineSnapshotRef.current = pipeline
+      ? { currentStepIndex: pipeline.currentStepIndex, status: pipeline.status }
+      : null;
+  }, [pipeline]);
+
+  useEffect(() => {
+    if (!selectedRunId || !isPipelineRunning) {
+      return;
+    }
+    let isMounted = true;
+    const interval = setInterval(async () => {
+      try {
+        const next = await getPipelineStatus(selectedRunId);
+        if (!isMounted || !next) return;
+        const prev = pipelineSnapshotRef.current;
+        const stepChanged =
+          !prev || next.currentStepIndex !== prev.currentStepIndex || next.status !== prev.status;
+        setPipeline(next);
+        if (stepChanged) {
+          const snapshot = await fetchRunSnapshot(selectedRunId);
+          if (!isMounted) return;
+          setAudit(snapshot.audit);
+          setSlidesUrl(snapshot.slidesUrl);
+          setSlideReports(snapshot.slideReports);
+          setGuestimateMetrics(snapshot.guestimateMetrics);
+          setCompetitorArtifacts(snapshot.competitorArtifacts);
+          setCompetitorAuditDone(snapshot.competitorAuditDone);
+        }
+        if (next.status === "failed" && next.error) {
+          setError(next.error);
+        }
+      } catch {
+        // Transient poll failure - retry on the next interval tick.
+      }
+    }, 3500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [selectedRunId, isPipelineRunning]);
 
   const onCreateSlides = useCallback(async () => {
     if (!audit || !selectedRunId) {
@@ -776,35 +910,64 @@ export default function HomePage(): React.JSX.Element {
             </form>
           </>
         ) : selectedRunId ? (
-          <AuditTabs
-            audit={audit}
-            onChange={setAudit}
-            agentUsername={UI_AGENT_USERNAME}
-            sessionId={selectedRunId ?? undefined}
-            loading={loading}
-            onRunAudit={onRunAuditFromData}
-            guestimateContent={guestimateContent}
-            hasRoiDocument={hasRoiDocument}
-            onGuestimateRoi={onGuestimateRoi}
-            guestimatingRoi={guestimatingRoi}
-            onSaveGuestimate={onSaveGuestimate}
-            onRunEyeQuant={onRunEyeQuant}
-            runningEyeQuant={runningEyeQuant}
-            onRedoEyeQuantPage={onRedoEyeQuantPage}
-            redoingEyeQuantPage={redoingEyeQuantPage}
-            slidesUrl={slidesUrl}
-            slidesError={slidesError}
-            onCreateSlides={onCreateSlides}
-            creatingSlides={creatingSlides}
-            slideReports={slideReports}
-            guestimateMetrics={guestimateMetrics}
-            onRunCompetitors={onRunCompetitors}
-            runningCompetitors={runningCompetitors}
-            competitorArtifacts={competitorArtifacts}
-            onAuditCompetitors={onAuditCompetitors}
-            auditingCompetitors={auditingCompetitors}
-            competitorAuditDone={competitorAuditDone}
-          />
+          <>
+            <div className="pipeline-bar">
+              <button
+                type="button"
+                className="audit-run-button"
+                onClick={() => void onRunPipeline()}
+                disabled={startingPipeline || isPipelineRunning}
+              >
+                {isPipelineRunning ? "Pipeline running…" : startingPipeline ? "Starting…" : "Run pipeline"}
+              </button>
+              {pipeline ? (
+                <div className="pipeline-steps-strip">
+                  {pipelineDisplaySteps(pipeline).map((s) => (
+                    <span
+                      key={s.label}
+                      className={`pipeline-step-pill pipeline-step-pill-${s.status}`}
+                    >
+                      {s.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <AuditTabs
+              audit={audit}
+              onChange={setAudit}
+              agentUsername={UI_AGENT_USERNAME}
+              sessionId={selectedRunId ?? undefined}
+              loading={loading}
+              onRunAudit={onRunAuditFromData}
+              guestimateContent={guestimateContent}
+              hasRoiDocument={hasRoiDocument}
+              onGuestimateRoi={onGuestimateRoi}
+              guestimatingRoi={guestimatingRoi || pipeline?.steps.guestimate?.status === "running"}
+              onSaveGuestimate={onSaveGuestimate}
+              onRunEyeQuant={onRunEyeQuant}
+              runningEyeQuant={runningEyeQuant || pipeline?.steps.eyequant?.status === "running"}
+              onRedoEyeQuantPage={onRedoEyeQuantPage}
+              redoingEyeQuantPage={redoingEyeQuantPage}
+              slidesUrl={slidesUrl}
+              slidesError={slidesError}
+              onCreateSlides={onCreateSlides}
+              creatingSlides={
+                creatingSlides ||
+                pipeline?.steps.report_generate?.status === "running" ||
+                pipeline?.steps.slides_create?.status === "running"
+              }
+              slideReports={slideReports}
+              guestimateMetrics={guestimateMetrics}
+              onRunCompetitors={onRunCompetitors}
+              runningCompetitors={runningCompetitors || pipeline?.steps.competitors_run?.status === "running"}
+              competitorArtifacts={competitorArtifacts}
+              onAuditCompetitors={onAuditCompetitors}
+              auditingCompetitors={auditingCompetitors || pipeline?.steps.competitors_audit?.status === "running"}
+              competitorAuditDone={competitorAuditDone}
+              pipelineActive={isPipelineRunning}
+            />
+          </>
         ) : (
           <AuditResultEditor
             value={audit}

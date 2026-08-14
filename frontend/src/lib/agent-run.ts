@@ -7,6 +7,13 @@ import { GoogleAuth } from "google-auth-library";
 import type { Competitor, UIAuditResponse } from "@/types/audit";
 
 const APP_NAME = "app";
+const DEFAULT_AUDITOR_AGENT_BASE = "http://127.0.0.1:8001";
+export const DEFAULT_AGENT_USERNAME = "ui-audit-user";
+
+export function auditorAgentBaseUrl(): string {
+  const auditorAgent = process.env.AUDITOR_AGENT?.trim();
+  return (auditorAgent || DEFAULT_AUDITOR_AGENT_BASE).replace(/\/$/, "");
+}
 
 type SessionCreateResponse = { id: string };
 type RunEventsResponse = unknown[];

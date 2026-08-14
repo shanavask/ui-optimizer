@@ -1,17 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { sendPromptInSession } from "@/lib/agent-run";
-
-const DEFAULT_AGENT_BASE = "http://127.0.0.1:8001";
-const DEFAULT_AGENT_USERNAME = "ui-audit-user";
-const GENERATE_REPORT_PROMPT = "generate report";
+import { DEFAULT_AGENT_USERNAME } from "@/lib/agent-run";
+import { runReportGenerateStep } from "@/lib/pipeline-actions";
 
 type GenerateReportBody = { runId?: unknown; username?: unknown };
-
-function auditorAgentBaseUrl(): string {
-  const auditorAgent = process.env.AUDITOR_AGENT;
-  return auditorAgent?.replace(/\/$/, "") ?? DEFAULT_AGENT_BASE;
-}
 
 export const runtime = "nodejs";
 
@@ -33,13 +25,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     const username = (typeof body.username === "string" ? body.username.trim() : "") || DEFAULT_AGENT_USERNAME;
 
-    await sendPromptInSession(
-      auditorAgentBaseUrl(),
-      runId,
-      GENERATE_REPORT_PROMPT,
-      controller.signal,
-      username,
-    );
+    await runReportGenerateStep(runId, controller.signal, username);
 
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
