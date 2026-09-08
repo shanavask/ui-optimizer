@@ -1,46 +1,31 @@
 import { NextResponse } from "next/server";
 
-import { runEyeQuantStep } from "@/lib/pipeline-actions";
+import { proxyToSlidesApi } from "@/lib/backend-proxy";
 
 type EyeQuantBody = { runId?: unknown; pageIndex?: unknown };
 
 export const runtime = "nodejs";
 
+// Adapter, not a straight proxy: the UI sends a POST {runId, pageIndex} body,
+// but slidesapi's existing /eyequant endpoint is a GET with query params and
+// returns a bare JSON string, not {status}.
 export async function POST(request: Request): Promise<Response> {
-  const requestId = `eyequant-${Date.now()}`;
-  try {
-    console.info("[slides/eyequant] request received", { requestId });
-    const bodyUnknown: unknown = await request.json();
-    if (typeof bodyUnknown !== "object" || bodyUnknown === null) {
-      console.warn("[slides/eyequant] invalid body", {
-        requestId,
-        bodyType: typeof bodyUnknown,
-      });
-      return NextResponse.json({ error: "Request body must be an object." }, { status: 400 });
-    }
-    const body = bodyUnknown as EyeQuantBody;
-    if (typeof body.runId !== "string" || !body.runId.trim()) {
-      console.warn("[slides/eyequant] missing runId", {
-        requestId,
-        runIdType: typeof body.runId,
-      });
-      return NextResponse.json({ error: "runId is required." }, { status: 400 });
-    }
-    const runId = body.runId.trim();
-    const pageIndex = typeof body.pageIndex === "number" ? body.pageIndex : null;
-    const status = await runEyeQuantStep(runId, pageIndex);
-    console.info("[slides/eyequant] upstream response", { requestId, runId, status });
-    return NextResponse.json({ status });
-  } catch (error: unknown) {
-    const message =
-      error instanceof Error && error.message.trim()
-        ? error.message
-        : "Unable to run EyeQuant.";
-    console.error("[slides/eyequant] request failed", {
-      requestId,
-      message,
-      error,
-    });
-    return NextResponse.json({ error: message }, { status: 500 });
+  const bodyUnknown: unknown = await request.json();
+  if (typeof bodyUnknown !== "object" || bodyUnknown === null) {
+    return NextResponse.json({ error: "Request body must be an object." }, { status: 400 });
   }
+  const body = bodyUnknown as EyeQuantBody;
+  if (typeof body.runId !== "string" || !body.runId.trim()) {
+    return NextResponse.json({ error: "runId is required." }, { status: 400 });
+  }
+  const searchParams = new URLSearchParams({ run_id: body.runId.trim() });
+  if (typeof body.pageIndex === "number") {
+    searchParams.set("page_id", String(body.pageIndex));
+  }
+  const response = await proxyToSlidesApi("/eyequant", { method: "GET", searchParams });
+  if (!response.ok) {
+    return response;
+  }
+  const status = (await response.json()) as string;
+  return NextResponse.json({ status });
 }

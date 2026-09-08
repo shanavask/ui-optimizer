@@ -77,7 +77,7 @@ def get_eye_shot_from_url(image_url: str, image_b64: str) -> str:
 
     # Resize overlay to match base size if necessary
     if img.size != img_over.size:
-        img_over = img_over.resize(img.size, Image.ANTIALIAS)
+        img_over = img_over.resize(img.size, Image.Resampling.LANCZOS)
 
     composited_img = Image.alpha_composite(img, img_over)
     compressed_buffer = BytesIO()

@@ -11,9 +11,12 @@ endif
 include $(ENV_FILE)
 .EXPORT_ALL_VARIABLES:
 
-# Cloud Tasks queue backing the pipeline orchestrator (frontend/src/lib/cloud-tasks.ts).
-# PIPELINE_TICK_URL has no default - it's the frontend's own public URL, only
-# known after its first deploy, so set it in .env/.env.dev like COMPUTER_API/SLIDES_API.
+# Cloud Tasks queue backing the pipeline orchestrator, now hosted entirely in
+# apis/slidesapi (apis/slidesapi/cloud_tasks_client.py) - not the frontend,
+# since the frontend's IAP setting is incompatible with Cloud Tasks' OIDC
+# push (see pipeline-infra below). PIPELINE_TICK_URL has no default - it's
+# slidesapi's own public URL + /pipeline/tick, only known after its first
+# deploy, so set it in .env/.env.dev like COMPUTER_API/SLIDES_API.
 PIPELINE_TASKS_QUEUE ?= pipeline-audit$(DEPLOY_SUFFIX)
 PIPELINE_TASKS_SA_EMAIL ?= pipeline-tasks-invoker$(DEPLOY_SUFFIX)@$(GOOGLE_CLOUD_PROJECT).iam.gserviceaccount.com
 
@@ -27,8 +30,8 @@ dev:
 	ID_TOKEN="$$(gcloud auth print-identity-token)"; \
 	export ID_TOKEN; \
 	$(MAKE) computer-api & \
- 	$(MAKE) slides-api & \
-	$(MAKE) COMPUTER_API=http://localhost:5401 SLIDES_API=http://localhost:5402 frontend  & \
+ 	$(MAKE) COMPUTER_API=http://localhost:5401 slides-api & \
+	$(MAKE) SLIDES_API=http://localhost:5402 frontend  & \
 	wait
 
 computer-api:
@@ -74,59 +77,58 @@ deploy-slidesapi:
 		--source ./apis/slidesapi \
 		--project $(GOOGLE_CLOUD_PROJECT) \
 		--region $(GOOGLE_CLOUD_LOCATION) \
+		--timeout 3600 \
 		--no-allow-unauthenticated \
 		--set-build-env-vars "GOOGLE_PYTHON_VERSION=3.13.11" \
-		--set-env-vars "GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),STORAGE_BUCKET=$(STORAGE_BUCKET),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),LLM_MODEL=$(LLM_MODEL),SERVICE_SECRET=$(SERVICE_SECRET),TARGET_FOLDER_KEY=$(TARGET_FOLDER_KEY),TEMPLATE_FILE_KEY=$(TEMPLATE_FILE_KEY),EYEQUANT_API_KEY=$(EYEQUANT_API_KEY)"
+		--set-env-vars "GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),STORAGE_BUCKET=$(STORAGE_BUCKET),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),LLM_MODEL=$(LLM_MODEL),SERVICE_SECRET=$(SERVICE_SECRET),TARGET_FOLDER_KEY=$(TARGET_FOLDER_KEY),TEMPLATE_FILE_KEY=$(TEMPLATE_FILE_KEY),EYEQUANT_API_KEY=$(EYEQUANT_API_KEY),AUDITOR_AGENT=$(AUDITOR_AGENT),COMPUTER_API=$(COMPUTER_API),PIPELINE_TASKS_QUEUE=$(PIPELINE_TASKS_QUEUE),PIPELINE_TICK_URL=$(PIPELINE_TICK_URL),PIPELINE_TASKS_SA_EMAIL=$(PIPELINE_TASKS_SA_EMAIL)"
 
+# The frontend is now a thin UI + auth-adding proxy with no business logic of
+# its own (see frontend/src/lib/backend-proxy.ts) - it only needs to know
+# where slidesapi lives, not any of the agent/computer-use/Firestore/Cloud
+# Tasks config that used to live here.
 deploy-frontend:
 	gcloud beta run deploy ui-audit$(DEPLOY_SUFFIX) --source ./frontend \
 			--project $(GOOGLE_CLOUD_PROJECT) --region $(GOOGLE_CLOUD_LOCATION) \
 			--platform managed --no-allow-unauthenticated \
 			--timeout 3600 \
 			--set-env-vars \
-			"GOOGLE_CLOUD_PROJECT=$(GOOGLE_CLOUD_PROJECT),GOOGLE_CLOUD_LOCATION=$(GOOGLE_CLOUD_LOCATION),STORAGE_BUCKET=$(STORAGE_BUCKET),FIRESTORE_DATABASE_ID=$(FIRESTORE_DATABASE_ID),CRITERIA_AGENT=$(CRITERIA_AGENT),GUESSTIMATE_AGENT=$(GUESSTIMATE_AGENT),AUDITOR_AGENT=$(AUDITOR_AGENT),COMPUTER_API=$(COMPUTER_API),SLIDES_API=$(SLIDES_API),PIPELINE_TASKS_QUEUE=$(PIPELINE_TASKS_QUEUE),PIPELINE_TICK_URL=$(PIPELINE_TICK_URL),PIPELINE_TASKS_SA_EMAIL=$(PIPELINE_TASKS_SA_EMAIL)"
+			"SLIDES_API=$(SLIDES_API),PIPELINE_TICK_URL=$(PIPELINE_TICK_URL)"
 
-# One-time per environment, after the frontend has been deployed at least
-# once (needs its URL for PIPELINE_TICK_URL and its runtime SA for the
-# enqueuer binding). Re-running is safe except for the `iam service-accounts
-# create` step, which fails if the SA already exists.
+# One-time per environment, after slidesapi has been deployed at least once
+# (needs its URL for PIPELINE_TICK_URL and its runtime SA for the enqueuer/
+# actAs bindings). Safe to re-run in full: the queue-create and SA-create
+# steps are prefixed with `-` so an "already exists" error from either one
+# doesn't stop the add-iam-policy-binding steps below from (re-)applying -
+# useful for topping up bindings that were missed on an earlier partial run.
+#
+# Targets ui-audit-slides (not ui-audit/the frontend): slidesapi has no IAP,
+# only plain Cloud Run IAM, so Cloud Tasks' OIDC push reaches it reliably -
+# unlike the frontend, where IAP + IAM together broke Cloud Tasks' server-to-
+# server auth (see git history / PR description for the full story).
 pipeline-infra:
-	gcloud tasks queues create $(PIPELINE_TASKS_QUEUE) \
+	-gcloud tasks queues create $(PIPELINE_TASKS_QUEUE) \
 		--project $(GOOGLE_CLOUD_PROJECT) \
 		--location $(GOOGLE_CLOUD_LOCATION) \
 		--max-attempts=3 \
 		--min-backoff=5s \
 		--max-backoff=30s
-# 	gcloud iam service-accounts create pipeline-tasks-invoker$(DEPLOY_SUFFIX) \
-# 		--project $(GOOGLE_CLOUD_PROJECT) \
-# 		--display-name "Cloud Tasks invoker for the ui-audit pipeline orchestrator"
-# 	gcloud run services add-iam-policy-binding ui-audit$(DEPLOY_SUFFIX) \
-# 		--project $(GOOGLE_CLOUD_PROJECT) \
-# 		--region $(GOOGLE_CLOUD_LOCATION) \
-# 		--member "serviceAccount:$(PIPELINE_TASKS_SA_EMAIL)" \
-# 		--role roles/run.invoker
-# 	# If IAP is enabled on ui-audit$(DEPLOY_SUFFIX) (Authentication > Require
-# 	# authentication > Identity-Aware Proxy in the Cloud Run console), IAP is
-# 	# enforced in addition to plain Cloud Run IAM - run.invoker alone is not
-# 	# enough for Cloud Tasks' server-to-server call to reach /api/pipeline/tick.
-# 	# IAP grants live on the IAP resource, not the Cloud Run service's own IAM
-# 	# policy, hence the separate `gcloud iap web` command group.
-# 	gcloud iap web add-iam-policy-binding \
-# 		--resource-type=cloud-run \
-# 		--service=ui-audit$(DEPLOY_SUFFIX) \
-# 		--region=$(GOOGLE_CLOUD_LOCATION) \
-# 		--project=$(GOOGLE_CLOUD_PROJECT) \
-# 		--member="serviceAccount:$(PIPELINE_TASKS_SA_EMAIL)" \
-# 		--role=roles/iap.httpsResourceAccessor
-# 	@FRONTEND_SA="$$(gcloud run services describe ui-audit$(DEPLOY_SUFFIX) --project $(GOOGLE_CLOUD_PROJECT) --region $(GOOGLE_CLOUD_LOCATION) --format='value(spec.template.spec.serviceAccountName)')"; \
-# 	echo "Granting roles/cloudtasks.enqueuer on $(PIPELINE_TASKS_QUEUE) to frontend runtime SA: $$FRONTEND_SA"; \
-# 	gcloud tasks queues add-iam-policy-binding $(PIPELINE_TASKS_QUEUE) \
-# 		--project $(GOOGLE_CLOUD_PROJECT) \
-# 		--location $(GOOGLE_CLOUD_LOCATION) \
-# 		--member "serviceAccount:$$FRONTEND_SA" \
-# 		--role roles/cloudtasks.enqueuer; \
-# 	echo "Granting roles/iam.serviceAccountUser on $(PIPELINE_TASKS_SA_EMAIL) to frontend runtime SA: $$FRONTEND_SA"; \
-# 	gcloud iam service-accounts add-iam-policy-binding $(PIPELINE_TASKS_SA_EMAIL) \
-# 		--project $(GOOGLE_CLOUD_PROJECT) \
-# 		--member "serviceAccount:$$FRONTEND_SA" \
-# 		--role roles/iam.serviceAccountUser
+	-gcloud iam service-accounts create pipeline-tasks-invoker$(DEPLOY_SUFFIX) \
+		--project $(GOOGLE_CLOUD_PROJECT) \
+		--display-name "Cloud Tasks invoker for the ui-audit pipeline orchestrator"
+	gcloud run services add-iam-policy-binding ui-audit-slides$(DEPLOY_SUFFIX) \
+		--project $(GOOGLE_CLOUD_PROJECT) \
+		--region $(GOOGLE_CLOUD_LOCATION) \
+		--member "serviceAccount:$(PIPELINE_TASKS_SA_EMAIL)" \
+		--role roles/run.invoker
+	@SLIDESAPI_SA="$$(gcloud run services describe ui-audit-slides$(DEPLOY_SUFFIX) --project $(GOOGLE_CLOUD_PROJECT) --region $(GOOGLE_CLOUD_LOCATION) --format='value(spec.template.spec.serviceAccountName)')"; \
+	echo "Granting roles/cloudtasks.enqueuer on $(PIPELINE_TASKS_QUEUE) to slidesapi runtime SA: $$SLIDESAPI_SA"; \
+	gcloud tasks queues add-iam-policy-binding $(PIPELINE_TASKS_QUEUE) \
+		--project $(GOOGLE_CLOUD_PROJECT) \
+		--location $(GOOGLE_CLOUD_LOCATION) \
+		--member "serviceAccount:$$SLIDESAPI_SA" \
+		--role roles/cloudtasks.enqueuer; \
+	echo "Granting roles/iam.serviceAccountUser on $(PIPELINE_TASKS_SA_EMAIL) to slidesapi runtime SA: $$SLIDESAPI_SA"; \
+	gcloud iam service-accounts add-iam-policy-binding $(PIPELINE_TASKS_SA_EMAIL) \
+		--project $(GOOGLE_CLOUD_PROJECT) \
+		--member "serviceAccount:$$SLIDESAPI_SA" \
+		--role roles/iam.serviceAccountUser
