@@ -4,5 +4,5 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request): Promise<Response> {
   const body = await request.json();
-  return proxyToSlidesApi("/remember", { method: "POST", body, signal: request.signal });
+  return proxyToSlidesApi("/pipeline/start", { method: "POST", body, signal: request.signal });
 }
